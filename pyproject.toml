@@ -5,18 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "context-core-api"
 version = "0.1.0"
-description = "Ingestion stage one: pulls TypeScript source out of GitHub and Epics/Stories out of Jira, and turns both into chunks."
+description = "Ingestion stage one: pulls TypeScript source out of GitHub, Epics/Stories out of Jira and pages out of Confluence, and turns all three into chunks."
 requires-python = ">=3.11"
 
-# httpx is a runtime dependency, not a test one: the Jira connector's HTTP
-# client. It has to be here rather than in [dev] because app.main imports the
-# Jira router, so a missing httpx would break the GitHub path too.
+# httpx is a runtime dependency, not a test one: the Jira and Confluence
+# connectors' HTTP client. beautifulsoup4 is the same story - it flattens
+# Confluence storage markup into text on the ingestion path. Both have to be
+# here rather than in [dev] because app.main imports every router, so a missing
+# one would break the GitHub path too.
+#
+# beautifulsoup4 runs on Python's built-in html.parser; lxml is deliberately not
+# a dependency, since storage format is small and well-formed enough not to need
+# it.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic",
     "PyGithub",
     "httpx",
+    "beautifulsoup4",
     "tree-sitter",
     "tree-sitter-typescript",
 ]

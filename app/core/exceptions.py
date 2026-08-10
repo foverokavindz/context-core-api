@@ -5,10 +5,14 @@ upstream API's own error text - GitHub's or Jira's - is deliberately NOT folded
 into these messages; it is logged server-side instead. That keeps two things out
 of responses: internal detail, and any chance of echoing back credentials.
 
-The GitHub errors come first, then the Jira ones. They are kept as separate
-classes rather than shared because the wording a client sees should name the
-system that actually failed, and because the two vendors do not agree on what a
-given status means - GitHub's 403 is ambiguous, Jira's is not.
+The GitHub errors come first, then the Jira ones, then the Confluence ones. They
+are kept as separate classes rather than shared because the wording a client sees
+should name the system that actually failed, and because the vendors do not agree
+on what a given status means - GitHub's 403 is ambiguous, Jira's is not.
+
+Jira and Confluence are both Atlassian, and their statuses do line up. They still
+get their own classes: a run ingests one or the other, never both, so a message
+naming the wrong product would be actively misleading.
 """
 
 
@@ -148,3 +152,75 @@ class JiraApiError(IngestionError):
 
     status_code = 502
     default_message = "The Jira API could not be reached or returned an error."
+
+
+class ConfluenceAuthenticationError(IngestionError):
+    """Confluence rejected the email/API-token pair itself.
+
+    Confluence Cloud answers 401 for wrong, expired or revoked credentials and
+    403 for valid-but-insufficient ones, the same split Jira makes - so the
+    status alone is enough to tell them apart.
+    """
+
+    status_code = 401
+    default_message = (
+        "Confluence rejected the supplied credentials. Check the email address "
+        "and that the API token is valid and has not been revoked."
+    )
+
+
+class ConfluencePermissionError(IngestionError):
+    """The account authenticated, but is not allowed to do this.
+
+    A scoped token missing `read:space:confluence` or `read:page:confluence`
+    lands here rather than on the 401 above: the credential is real, it simply
+    does not carry the scope this ingestion needs.
+    """
+
+    status_code = 403
+    default_message = (
+        "The supplied Atlassian account does not have permission to read this "
+        "Confluence space."
+    )
+
+
+class ConfluenceNotFoundError(IngestionError):
+    """No such Confluence site or space, or the account cannot see it.
+
+    Confluence omits spaces an account may not read from a keyed lookup rather
+    than returning 403, so an invisible space and a nonexistent one are
+    genuinely indistinguishable here - the same situation JiraNotFoundError and
+    RepositoryNotFoundError describe.
+    """
+
+    status_code = 404
+    default_message = (
+        "The requested Confluence space does not exist, or the account cannot "
+        "see it."
+    )
+
+
+class ConfluenceRateLimitError(IngestionError):
+    """Confluence is throttling this account.
+
+    Returned to the caller immediately. Nothing in the connector sleeps waiting
+    for a limit to reset - that would stall a request for minutes.
+    """
+
+    status_code = 429
+    default_message = (
+        "Confluence is rate limiting this account. Wait before retrying."
+    )
+
+
+class ConfluenceApiError(IngestionError):
+    """Confluence could not be reached, or returned something we cannot act on.
+
+    Covers network failures, timeouts, unreadable bodies, and any status the
+    other Confluence errors do not claim.
+    """
+
+    status_code = 502
+    default_message = (
+        "The Confluence API could not be reached or returned an error."
+    )
