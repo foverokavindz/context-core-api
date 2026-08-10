@@ -1,8 +1,11 @@
-# Context Core — GitHub Ingestion API
+# Context Core — Ingestion API
 
-Stage one of a RAG ingestion pipeline. It takes a GitHub token and a repository,
-pulls the TypeScript source out through the GitHub REST API, filters the noise,
-and parses what is left into logical code chunks with Tree-sitter.
+Stage one of a RAG ingestion pipeline. Two independent sources, each ending in
+chunks that a later phase can embed.
+
+**GitHub** takes a token and a repository, pulls the TypeScript source out
+through the GitHub REST API, filters the noise, and parses what is left into
+logical code chunks with Tree-sitter.
 
 ```
 HTTP request  ->  GitHub connector  ->  repository tree
@@ -20,6 +23,32 @@ HTTP request  ->  GitHub connector  ->  repository tree
                                     debug JSON response
 ```
 
+**Jira** takes Atlassian credentials and a project key, pulls that project's
+Epics and Stories through the Jira Cloud REST API, flattens their Atlassian
+Document Format descriptions into plain text, and resolves Epic ↔ Story links.
+
+```
+HTTP request  ->  Jira connector  ->  Jira Cloud REST v3
+                                             |
+                                   Epics + Stories (paged)
+                                             |
+                                        JiraParser
+                                             |
+                                        JiraIssue[]
+                                             |
+                            parent/child relationship construction
+                                             |
+                                        JiraChunker
+                                             |
+                                        JiraChunk[]
+                                             |
+                                    debug JSON response
+```
+
+The two pipelines are deliberately kept separate. A shared `SourceDocument`
+abstraction will come once both have been used enough to show what they actually
+have in common — guessing at it first would produce the wrong abstraction.
+
 ## What it does not do — yet
 
 Deliberately absent, so the ingestion path stays small enough to understand and
@@ -30,10 +59,11 @@ control end to end:
 - no retrieval, reranking or LLM calls
 - no background queues, webhooks or incremental indexing
 - no `git clone` — everything goes through the GitHub API
+- no Jira comments, attachments, changelogs, sprints or assignees
 - no LangChain or LlamaIndex
 
-`CodeChunk[]` is the handover point. A later phase can embed and store those
-objects without touching the connector, the filter or the parser.
+`CodeChunk[]` and `JiraChunk[]` are the handover points. A later phase can embed
+and store those objects without touching a connector, the filter or a parser.
 
 ## Installation
 
@@ -59,7 +89,7 @@ uvicorn app.main:app --reload
 - Swagger UI: <http://localhost:8000/docs>
 - Health: <http://localhost:8000/health>
 
-## Calling the endpoint
+## Calling the GitHub endpoint
 
 ```
 POST /api/v1/github/ingest
@@ -188,42 +218,239 @@ The connector therefore supplies a plain `urllib3` retry policy that retries
 only transient 5xx and connection failures, so a rate limit returns **429 in
 well under a second**. Verified against a genuinely exhausted limit.
 
+## Calling the Jira endpoint
+
+```
+POST /api/v1/jira/ingest
+```
+
+```json
+{
+	"site_url": "https://your-company.atlassian.net",
+	"email": "developer@example.com",
+	"api_token": "jira-api-token",
+	"project_key": "TRACK"
+}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `site_url` | yes | Your Jira Cloud site root. `https://` only; a trailing slash is normalised away. |
+| `email` | yes | The Atlassian account the token belongs to. Used as the HTTP Basic username. |
+| `api_token` | yes | An Atlassian API token. Held in memory for the request only. |
+| `project_key` | yes | The project to ingest, e.g. `TRACK`. |
+| `full` | no | `true` returns **every** issue and chunk, untruncated, instead of a sample. |
+| `max_issues` | no | Overrides how many issues this run retrieves (default 500). |
+
+Create a token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+The account needs **Browse Projects** permission on the project.
+
+**Scoped tokens are supported, and are the reason requests go through
+Atlassian's gateway.** A token created with scopes cannot authenticate against
+`https://your-site.atlassian.net/rest/...` at all — it returns 401 no matter how
+correct it is. It only works against `api.atlassian.com` with the site's cloud
+ID in the path, so every run begins by reading that ID from the site's public
+`/_edge/tenant_info` endpoint:
+
+```
+https://your-site.atlassian.net/_edge/tenant_info   (public, no credential)
+        -> {"cloudId": "c57406ca-..."}
+        -> https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3/...
+```
+
+You still supply your ordinary site URL; the connector does the rest. A scoped
+token needs `read:jira-user` (for `/myself`) and `read:jira-work` (for the
+project lookup and the search).
+
+```bash
+curl -X POST http://localhost:8000/api/v1/jira/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "site_url": "https://YOUR-SITE.atlassian.net",
+    "email": "YOUR-ATLASSIAN-EMAIL",
+    "api_token": "YOUR-API-TOKEN",
+    "project_key": "TRACK"
+  }'
+```
+
+> **Never commit a real API token.** Paste it into the request at call time. It
+> is not read from a file, not written to one, and not stored anywhere.
+
+Note that this stage does **not** yet embed or persist Jira chunks. `JiraChunk[]`
+comes back in the response and goes nowhere else.
+
+### What gets fetched
+
+The JQL is built by the application, never by the caller — sending a `jql` field
+is a `422`, so a request cannot reach outside the project it named:
+
+```
+project = "TRACK" AND issuetype in ("Epic", "Story") ORDER BY created ASC
+```
+
+Only six fields are requested (`summary`, `description`, `status`, `issuetype`,
+`parent`, `project`), because an unqualified search returns every custom field a
+site has ever defined. `parent` earns its place twice over — see below.
+
+Four endpoints are used, in this order:
+
+| Endpoint | Why |
+| --- | --- |
+| `GET /_edge/tenant_info` | The site's cloud ID. Public, and the only request that carries no credential — it uses a separate unauthenticated client so it cannot acquire one. |
+| `GET /rest/api/3/myself` | Confirms the credentials work before anything else runs. |
+| `GET /rest/api/3/project/{key}` | Turns an invisible or misspelled project into a clean `404`. |
+| `POST /rest/api/3/search/jql` | The enhanced search endpoint, paged with `nextPageToken` until `isLast`. |
+
+The last three go through the gateway. The tenant lookup is not counted in the
+"Jira API calls" total, which tracks the authenticated calls a rate limit
+applies to; it gets its own log line instead.
+
+### Relationships without N+1 calls
+
+Jira tells you a Story's parent but never an Epic's children. Asking for them
+would cost one extra API request per Epic. Since `parent` is one of the six
+requested fields, a run already has everything it needs in memory, so children
+are resolved by a single local pass:
+
+```
+TRACK-25.parent_key = TRACK-10        ->      TRACK-10.child_issues = [
+TRACK-26.parent_key = TRACK-10                    "TRACK-25",
+                                                  "TRACK-26",
+                                              ]
+```
+
+Child lists are sorted and de-duplicated, so the same project always produces
+the same chunk text. A Story whose Epic fell outside the run **keeps its
+`parent_key`** — a dangling pointer is more useful than a silently dropped one,
+and it is exactly what a capped run produces. Those are summarised in `errors[]`
+as one entry, not one per Story.
+
+### Descriptions
+
+Jira Cloud returns descriptions as Atlassian Document Format — a JSON tree. None
+of that belongs in a chunk, so `app/ingestion/jira_adf.py` flattens it:
+
+```json
+{ "type": "doc", "content": [
+  { "type": "paragraph", "content": [
+    { "type": "text", "text": "Employees can edit timesheets." }]}]}
+```
+
+becomes `Employees can edit timesheets.` Paragraphs, headings, hard breaks,
+bullet and numbered lists (including nesting), blockquotes and code blocks are
+all handled. Formatting marks are dropped and their text kept. An unrecognised
+node never crashes the run: its text is salvaged, or its children are traversed.
+
+This is a *flattening*, not a faithful renderer. Contrast `CodeChunk.content`,
+which guarantees an exact byte slice of the original file — there is no such
+guarantee here, because what an embedding model needs from a Jira description is
+the prose, not the markup.
+
+### Chunking
+
+One issue, one chunk. No splitting by tokens, characters, paragraphs, headings
+or sentences — the simplest baseline that can work, so `generated_chunks` equals
+`retrieved_issues` unless an issue failed to parse.
+
+```
+Issue Key: TRACK-10
+Issue Type: Epic
+Project: TRACK
+Summary: Timesheet Management
+Status: In Progress
+
+Description:
+Provide complete timesheet management capabilities.
+
+Child Issues:
+TRACK-21
+TRACK-25
+```
+
+A Story instead carries a `Parent Epic:` line. `Status:` and `Parent Epic:` are
+omitted entirely when absent rather than rendered as `None`.
+
+**An Epic's chunk names its children by key and never repeats their text.** Each
+Story already has its own chunk, so copying its description into its Epic would
+embed the same prose twice.
+
+### Jira errors
+
+| Situation | Status |
+| --- | --- |
+| Invalid, expired or revoked API token | 401 |
+| Account authenticated but lacks permission, or a scoped token missing `read:jira-user` / `read:jira-work` | 403 |
+| Site or project not found, or not visible to the account | 404 |
+| Jira rate limit | 429 |
+| Jira unreachable, timed out, or returning an unreadable body | 502 |
+| Malformed request body, or a `jql` field | 422 |
+
+Jira's own error body never reaches the client — it is logged server-side and
+the client gets one of our fixed messages. Nothing sleeps waiting for a rate
+limit to reset; a `429` comes straight back.
+
+`truncated: true` means the *ingestion* stopped early because `max_issues` was
+reached while Jira still had results. That is a different thing from `full:
+false`, which only shortens the *response*. Sampling never sets `truncated`.
+
 ## Architecture
 
 ```
 app/
-├── main.py                      FastAPI app, logging, error handler
-├── api/github_routes.py         the endpoint (thin)
+├── main.py                       FastAPI app, logging, error handler
+├── api/
+│   ├── github_routes.py          the GitHub endpoint (thin)
+│   └── jira_routes.py            the Jira endpoint (thin)
 ├── connectors/
-│   ├── base.py                  BaseSourceConnector, SourceSnapshot
-│   └── github_connector.py      the only module that imports PyGithub
+│   ├── base.py                   BaseSourceConnector, SourceSnapshot
+│   ├── github_connector.py       the only module that imports PyGithub
+│   └── jira_connector.py         the only module that imports httpx
 ├── ingestion/
-│   ├── ingestion_service.py     orchestration
-│   ├── file_filter.py           which paths are worth ingesting
-│   └── parser/
-│       ├── base.py              BaseParser + ParserRegistry
-│       └── typescript_parser.py Tree-sitter TS/TSX
+│   ├── ingestion_service.py      GitHub orchestration
+│   ├── file_filter.py            which paths are worth ingesting
+│   ├── parser/
+│   │   ├── base.py               BaseParser + ParserRegistry
+│   │   └── typescript_parser.py  Tree-sitter TS/TSX
+│   ├── jira_ingestion_service.py Jira orchestration + relationship linking
+│   ├── jira_parser.py            the only module that knows Jira's field names
+│   ├── jira_adf.py               ADF -> plain text
+│   └── jira_chunker.py           one issue -> one chunk
 ├── models/
-│   ├── github_request.py        GitHubIngestRequest
-│   ├── repository_file.py       RepositoryFile  <- the boundary
-│   ├── code_chunk.py            CodeChunk
-│   └── ingest_response.py       response DTOs + limits
-├── core/exceptions.py           error types and their HTTP statuses
+│   ├── github_request.py         GitHubIngestRequest
+│   ├── repository_file.py        RepositoryFile  <- the GitHub boundary
+│   ├── code_chunk.py             CodeChunk
+│   ├── ingest_response.py        GitHub response DTOs + limits
+│   ├── jira_request.py           JiraIngestRequest
+│   ├── jira_issue.py             JiraIssue  <- the Jira boundary
+│   ├── jira_chunk.py             JiraChunk
+│   └── jira_response.py          Jira response DTOs + limits
+├── core/exceptions.py            error types and their HTTP statuses
 └── tests/
 ```
 
-### The boundary that matters
+### The boundaries that matter
 
 ```
 GitHub  ->  GitHubConnector  ->  RepositoryFile  ->  filter/parser/chunks
                                  ^^^^^^^^^^^^^^
                             nothing past here knows about GitHub
+
+Jira    ->  JiraConnector    ->  JiraIssue       ->  linking/chunker
+                                 ^^^^^^^^^
+                             nothing past here knows about Jira
 ```
 
-`github_connector.py` is the only file importing PyGithub. The parser accepts a
-`RepositoryFile` and nothing else. Adding a Jira or Confluence source later means
-writing another `BaseSourceConnector` that produces `RepositoryFile` objects —
-the filter, parsers and chunking need no changes.
+`github_connector.py` is the only file importing PyGithub. `jira_connector.py`
+is the only Jira file importing httpx, and the only one that knows Jira's
+endpoints; `jira_parser.py` is the only one that knows Jira's field names. By
+the time an issue is a `JiraIssue`, its description is plain text — no ADF
+survives that boundary.
+
+Neither pipeline imports the other. `JiraConnector` deliberately does **not**
+implement `BaseSourceConnector`: that contract is repository-shaped
+(`get_files(branch=…)` returning a `commit_sha`), and a Jira issue has neither a
+branch nor a commit. Forcing dummy values through it would make the abstraction
+worse, not better.
 
 ### How a repository is walked
 
@@ -390,17 +617,48 @@ while keeping the rest:
 logging.getLogger("app.connectors.github_connector").setLevel(logging.WARNING)
 ```
 
+A Jira run narrates itself the same way:
+
+```
+INFO  Ingesting Jira project TRACK from https://your-company.atlassian.net
+INFO  Jira: resolving the Jira site
+INFO  Resolved Jira cloud id for https://your-company.atlassian.net
+INFO  Jira: validating credentials
+INFO  Jira authentication successful
+INFO  Jira: reading project TRACK
+INFO  Searching Epics and Stories in TRACK
+INFO  Jira: searching issues
+INFO  Jira page 1 returned 100 issues
+INFO  Jira page 2 returned 24 issues
+INFO  Retrieved 124 Jira issues from 2 page(s) (4 Jira API calls)
+INFO  Parsed 124 Jira issues
+INFO  Linked 112 issues to 12 epics
+INFO  Generated 124 Jira chunks
+INFO  Ingested 124 Jira issues (12 epics, 112 stories, 112 linked to an epic) into 124 chunks in 2.4s
+```
+
+**Log volume tracks pages, not issues.** A hundred issues arrive in one API
+call, so a per-issue line would say nothing about where time went; per-issue
+detail stays at DEBUG. This is the same principle as GitHub's one-line-per-file,
+applied to the unit that actually costs a round trip.
+
 ## Security
 
-The token is held as a pydantic `SecretStr`, which renders as `**********` in
-every repr, log line and serialisation. It is unwrapped exactly once — on the
-line that constructs the GitHub client — and never assigned to an attribute, so
-nothing a traceback or a debug log could print holds it.
+Both tokens are held as a pydantic `SecretStr`, which renders as `**********` in
+every repr, log line and serialisation. Each is unwrapped exactly once — on the
+line that constructs the GitHub client, or the line that builds the Jira client's
+Basic-auth pair — and never assigned to an attribute, so nothing a traceback or a
+debug log could print holds it.
 
-It is never logged, never persisted, never included in a response, and never
-written to disk. The connector is closed as soon as fetching finishes, so the
-authenticated session does not outlive the request. Parsing happens afterwards,
-without it.
+Neither is ever logged, persisted, included in a response, or written to disk.
+The connector is closed as soon as fetching finishes, so the authenticated
+session does not outlive the request. Parsing happens afterwards, without it.
+
+For Jira specifically: the account email is treated as a credential too and is
+kept out of log lines, which name the site and the project instead. Request
+headers are never logged — that is where the Basic credential rides. Jira error
+bodies *are* logged, capped at 500 characters, but never returned. `site_url`
+must be `https://`, since the credential travels on every request.
 
 Sending a token in a request body is acceptable for this prototype. A production
 deployment would use HTTPS and a proper credential-management mechanism; that is
@@ -412,18 +670,29 @@ explicitly out of scope here.
 pytest app/tests -v
 ```
 
-171 tests, no network access and no token required. PyGithub is replaced with
-fakes that record which API calls were made — which is how the suite proves that
-ignored files are never downloaded, and that a token never reaches a response,
-a log or an error message.
+400 tests, no network access and no credentials required. PyGithub is replaced
+with fakes and Jira with an `httpx.MockTransport`, both of which record which API
+calls were made — which is how the suite proves that ignored files are never
+downloaded, that the Jira issue cap shrinks the *request* rather than trimming
+the answer, and that a token never reaches a response, a log or an error message.
 
-| Module                      | Covers                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `test_file_filter.py`       | every include/exclude rule, plus segment- and suffix-matching regressions                                                 |
-| `test_typescript_parser.py` | each symbol kind, parent links, exact source spans, line ranges, TSX, fallbacks, syntax errors, the line-index regression |
-| `test_github_connector.py`  | branch resolution, filter-before-fetch, binary/UTF-8 skips, error mapping, token containment                              |
-| `test_ingestion_service.py` | the real pipeline end to end with only the network faked                                                                  |
-| `test_api.py`               | request validation, response projection, HTTP status mapping, token never echoed                                          |
+| Module                           | Covers                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `test_file_filter.py`            | every include/exclude rule, plus segment- and suffix-matching regressions                                                 |
+| `test_typescript_parser.py`      | each symbol kind, parent links, exact source spans, line ranges, TSX, fallbacks, syntax errors, the line-index regression |
+| `test_github_connector.py`       | branch resolution, filter-before-fetch, binary/UTF-8 skips, error mapping, token containment                              |
+| `test_ingestion_service.py`      | the real GitHub pipeline end to end with only the network faked                                                           |
+| `test_api.py`                    | request validation, response projection, HTTP status mapping, token never echoed                                          |
+| `test_jira_adf.py`               | every ADF node kind, nesting, unknown nodes, malformed shapes, recursion depth — all exact-string assertions              |
+| `test_jira_parser.py`            | each field and each fallback, null tolerance, the one fatal case (no issue key)                                           |
+| `test_jira_chunker.py`           | the chunk template, omitted lines, one-chunk-per-issue, an Epic never carrying a child's description                      |
+| `test_jira_connector.py`         | cloud-ID resolution and the gateway, the JQL, the six fields, pagination and its three loop guards, the cap, error mapping, credential containment |
+| `test_jira_ingestion_service.py` | the real Jira pipeline end to end; linking, orphans, and the no-N+1 guarantee                                             |
+| `test_jira_api.py`               | request validation, sampling vs truncation, HTTP status mapping, token never echoed                                       |
+
+The Jira connector tests drive a **real** `httpx.Client` through a mock
+transport, so base-URL joining, the Basic-auth header and body serialisation are
+all genuinely exercised rather than patched out.
 
 ## Manual verification against a real repository
 
@@ -435,3 +704,21 @@ a log or an error message.
    `sample_chunks` contains a `method` with a `parent_symbol`.
 4. Check the server log — it reports the repository, branch, commit and counts,
    and contains no credential.
+
+## Manual verification against a real Jira project
+
+1. `uvicorn app.main:app --reload`
+2. Open <http://localhost:8000/docs> and call `/api/v1/jira/ingest` with a real
+   site, email, token and project key, or use the `curl` command above.
+3. Check that `epics + stories == retrieved_issues`, and that
+   `generated_chunks == retrieved_issues`.
+4. Check that Stories carry a `parent_key` and Epics carry a populated
+   `child_issues`.
+5. Check that descriptions read as plain text — no `{"type": "doc" ...}`
+   anywhere in the response.
+6. Check that an Epic's `sample_chunks` entry lists its children's *keys* and
+   none of their description text.
+7. Set `max_issues` below the project size and confirm `truncated: true`; set it
+   at or above and confirm `truncated: false`.
+8. Check the server log — it reports the site, project, pages and counts, and
+   contains no token, no `Authorization` header and no email.
