@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from app.api.confluence_routes import router as confluence_router
 from app.api.github_routes import router as github_router
 from app.api.jira_routes import router as jira_router
+from app.api.slack_routes import router as slack_router
 from app.core.exceptions import IngestionError
 
 logging.basicConfig(
@@ -32,23 +33,26 @@ app = FastAPI(
         "Tree-sitter. Jira: pulls a project's Epics and Stories, flattens their "
         "descriptions and links them, one chunk per issue. Confluence: pulls one "
         "space's pages, flattens their storage markup into readable text, one "
-        "chunk per page. No embeddings, no database, no retrieval - yet."
+        "chunk per page. Slack: pulls one channel's message history, drops "
+        "thread replies and channel events, one chunk per message. No "
+        "embeddings, no database, no retrieval - yet."
     ),
 )
 
 app.include_router(github_router)
 app.include_router(jira_router)
 app.include_router(confluence_router)
+app.include_router(slack_router)
 
 
 @app.exception_handler(IngestionError)
 def handle_ingestion_error(request: Request, exc: IngestionError) -> JSONResponse:
     """Turn a pipeline failure into the right HTTP status.
 
-    Registered on the base class, so every source's errors - GitHub's, Jira's
-    and Confluence's alike - map through here. Each exception carries its own
-    client-safe message; nothing from the upstream API's response body and no
-    internal detail reaches the client through this path.
+    Registered on the base class, so every source's errors - GitHub's, Jira's,
+    Confluence's and Slack's alike - map through here. Each exception carries
+    its own client-safe message; nothing from the upstream API's response body
+    and no internal detail reaches the client through this path.
     """
     logger.info(
         "Ingestion failed with %s -> HTTP %d", type(exc).__name__, exc.status_code

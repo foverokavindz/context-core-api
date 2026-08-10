@@ -5,14 +5,22 @@ upstream API's own error text - GitHub's or Jira's - is deliberately NOT folded
 into these messages; it is logged server-side instead. That keeps two things out
 of responses: internal detail, and any chance of echoing back credentials.
 
-The GitHub errors come first, then the Jira ones, then the Confluence ones. They
-are kept as separate classes rather than shared because the wording a client sees
-should name the system that actually failed, and because the vendors do not agree
-on what a given status means - GitHub's 403 is ambiguous, Jira's is not.
+The GitHub errors come first, then the Jira ones, then the Confluence ones, then
+the Slack ones. They are kept as separate classes rather than shared because the
+wording a client sees should name the system that actually failed, and because
+the vendors do not agree on what a given status means - GitHub's 403 is
+ambiguous, Jira's is not.
 
 Jira and Confluence are both Atlassian, and their statuses do line up. They still
 get their own classes: a run ingests one or the other, never both, so a message
 naming the wrong product would be actively misleading.
+
+The Slack family is the odd one out, and not because of its wording. The other
+three vendors report failure with an HTTP status; Slack answers `200 OK` with
+`{"ok": false, "error": "invalid_auth"}` in the body. So a Slack error is chosen
+by matching that error *string*, not by reading a status code. The classes look
+the same from the outside, which is the point - what varies is how the connector
+arrives at one.
 """
 
 
@@ -224,3 +232,80 @@ class ConfluenceApiError(IngestionError):
     default_message = (
         "The Confluence API could not be reached or returned an error."
     )
+
+
+class SlackAuthenticationError(IngestionError):
+    """Slack rejected the bot token itself.
+
+    Reached through `invalid_auth`, `not_authed`, `token_revoked`,
+    `token_expired` and `account_inactive` - all of which Slack reports in the
+    body of a 200 response rather than as a 401. The connector is what turns
+    them into this; nothing downstream sees the string.
+    """
+
+    status_code = 401
+    default_message = (
+        "Slack rejected the supplied token. Check that it is a valid bot token "
+        "and has not been revoked."
+    )
+
+
+class SlackPermissionError(IngestionError):
+    """The token is real, but this workspace will not let it read this channel.
+
+    Two quite different causes land here, and Slack names them separately:
+    `missing_scope` means the token was created without `channels:history` or
+    `groups:history`, and `not_in_channel` means the scope is present but the
+    bot was never invited to the conversation. Both are fixed by an
+    administrator rather than by a new token, which is why they share a status.
+    """
+
+    status_code = 403
+    default_message = (
+        "The supplied Slack token is not allowed to read this channel's "
+        "history. Check that the app has the channels:history or "
+        "groups:history scope and that the bot is a member of the channel."
+    )
+
+
+class SlackNotFoundError(IngestionError):
+    """No such channel, or this token cannot see it.
+
+    Slack answers `channel_not_found` both for a conversation that does not
+    exist and for one the token has no visibility of, so the two are genuinely
+    indistinguishable here - the same situation ConfluenceNotFoundError,
+    JiraNotFoundError and RepositoryNotFoundError describe for their own
+    vendors.
+    """
+
+    status_code = 404
+    default_message = (
+        "The requested Slack channel does not exist, or this token cannot see "
+        "it."
+    )
+
+
+class SlackRateLimitError(IngestionError):
+    """Slack is throttling this token.
+
+    Returned to the caller immediately. Slack sends a `Retry-After` header with
+    its 429 and the connector logs that value, but nothing sleeps on it - that
+    would stall a synchronous request for the length of a Slack cooldown.
+    """
+
+    status_code = 429
+    default_message = "Slack is rate limiting this token. Wait before retrying."
+
+
+class SlackApiError(IngestionError):
+    """Slack could not be reached, or returned something we cannot act on.
+
+    Covers network failures, timeouts, unreadable bodies, a response with no
+    usable `ok` field, and every Slack error string the classes above do not
+    claim - including ones Slack has not invented yet. An unrecognised error
+    becomes this rather than an authentication failure, because guessing wrong
+    about a credential sends an operator to check the wrong thing.
+    """
+
+    status_code = 502
+    default_message = "The Slack API could not be reached or returned an error."

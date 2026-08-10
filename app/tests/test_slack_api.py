@@ -1,0 +1,566 @@
+"""Tests for POST /api/v1/slack/ingest.
+
+The service is replaced with a double, so these tests cover what the route is
+actually responsible for: validating the request, projecting a result onto the
+response, sampling it, and mapping a pipeline error onto a status. Whether
+ingestion itself works is the other modules' problem and is tested there.
+
+The distinction this file exists to pin down is `truncated` versus `full`. One
+says the ingestion did not see the whole channel; the other says the response is
+showing you part of what it did see. Confusing them would make a complete run
+look partial, so there is an explicit regression test for it.
+
+There is a third thing that shortens what you see and must not be confused with
+either, which is the parser's filter. That one shows up as `parsed_messages`
+being lower than `retrieved_messages`, and it is normal - so the fixtures here
+keep those two counts deliberately unequal rather than using matching numbers
+that would hide a mix-up.
+"""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api.slack_routes import get_slack_ingestion_service
+from app.core.exceptions import (
+    IngestionError,
+    SlackApiError,
+    SlackAuthenticationError,
+    SlackNotFoundError,
+    SlackPermissionError,
+    SlackRateLimitError,
+)
+from app.ingestion.slack_ingestion_service import SlackIngestionResult
+from app.main import app
+from app.models.slack_chunk import SlackChunk
+from app.models.slack_message import SlackMessage
+from app.models.slack_request import SlackIngestRequest
+from app.models.slack_response import (
+    CHUNK_CONTENT_PREVIEW_CHARS,
+    SAMPLE_CHUNKS_LIMIT,
+    SAMPLE_MESSAGES_LIMIT,
+)
+
+ENDPOINT = "/api/v1/slack/ingest"
+
+TOKEN = "xoxb-slack-secret-value-that-must-never-be-echoed"
+CHANNEL = "C0123456789"
+USER = "U0000000001"
+TS = "1754810101.100100"
+
+
+# ------------------------------------------------------------------- fakes
+
+
+def payload(**overrides) -> dict:
+    """A valid request body, with any field replaced or added."""
+    body = {"token": TOKEN, "channel_id": CHANNEL}
+    body.update(overrides)
+    return body
+
+
+def make_message(
+    message_ts: str = TS,
+    *,
+    text: str = "We should update the authentication flow.",
+) -> SlackMessage:
+    return SlackMessage(
+        channel_id=CHANNEL, message_ts=message_ts, author_id=USER, text=text
+    )
+
+
+def make_chunk(
+    message_ts: str = TS,
+    *,
+    content: str = "We should update the authentication flow.",
+) -> SlackChunk:
+    return SlackChunk(
+        channel_id=CHANNEL, message_ts=message_ts, author_id=USER, content=content
+    )
+
+
+def make_result(
+    *,
+    messages: list[SlackMessage] | None = None,
+    chunks: list[SlackChunk] | None = None,
+    retrieved_messages: int | None = None,
+    truncated: bool = False,
+    errors: list[tuple[str, str]] | None = None,
+) -> SlackIngestionResult:
+    messages = messages if messages is not None else [make_message()]
+    chunks = chunks if chunks is not None else [make_chunk()]
+
+    return SlackIngestionResult(
+        channel_id=CHANNEL,
+        retrieved_messages=(
+            retrieved_messages if retrieved_messages is not None else len(messages)
+        ),
+        truncated=truncated,
+        messages=messages,
+        chunks=chunks,
+        errors=errors if errors is not None else [],
+    )
+
+
+class FakeSlackService:
+    """Stands in for SlackIngestionService."""
+
+    def __init__(
+        self,
+        result: SlackIngestionResult | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.calls: list[dict] = []
+
+    def ingest(self, token, channel_id, max_messages=None) -> SlackIngestionResult:
+        self.calls.append(
+            {
+                "token": token.get_secret_value(),
+                "channel_id": channel_id,
+                "max_messages": max_messages,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        return self.result if self.result is not None else make_result()
+
+
+def client_with(service: FakeSlackService) -> TestClient:
+    app.dependency_overrides[get_slack_ingestion_service] = lambda: service
+    return TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_overrides():
+    yield
+    app.dependency_overrides.clear()
+
+
+# --------------------------------------------------------------- happy path
+
+
+def test_a_valid_request_succeeds() -> None:
+    assert client_with(FakeSlackService()).post(
+        ENDPOINT, json=payload()
+    ).status_code == 200
+
+
+def test_the_channel_is_echoed_back() -> None:
+    body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
+
+    assert body["channel_id"] == CHANNEL
+
+
+def test_the_counts_describe_the_funnel() -> None:
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(3)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(3)],
+        retrieved_messages=9,
+    )
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["retrieved_messages"] == 9
+    assert body["parsed_messages"] == 3
+    assert body["generated_chunks"] == 3
+
+
+def test_a_gap_between_retrieved_and_parsed_is_reported_not_hidden() -> None:
+    """The filter dropping most of a channel's history is normal, not an error."""
+    result = make_result(retrieved_messages=200, errors=[])
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["retrieved_messages"] == 200
+    assert body["parsed_messages"] == 1
+    assert body["truncated"] is False
+    assert body["errors"] == []
+
+
+def test_the_messages_carry_their_fields() -> None:
+    body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
+
+    assert body["messages"][0] == {
+        "channel_id": CHANNEL,
+        "message_ts": TS,
+        "author_id": USER,
+        "text": "We should update the authentication flow.",
+    }
+
+
+def test_the_sample_chunks_carry_their_fields() -> None:
+    body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
+
+    assert body["sample_chunks"][0] == {
+        "channel_id": CHANNEL,
+        "message_ts": TS,
+        "author_id": USER,
+        "content": "We should update the authentication flow.",
+    }
+
+
+def test_an_empty_channel_still_answers_200() -> None:
+    result = make_result(messages=[], chunks=[], retrieved_messages=0)
+
+    response = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload())
+
+    assert response.status_code == 200
+    assert response.json()["messages"] == []
+    assert response.json()["sample_chunks"] == []
+
+
+def test_errors_are_reported_as_subject_and_reason() -> None:
+    result = make_result(
+        errors=[(CHANNEL, "Ingestion stopped at the page ceiling.")]
+    )
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["errors"] == [
+        {"message": CHANNEL, "reason": "Ingestion stopped at the page ceiling."}
+    ]
+
+
+# ------------------------------------------------------------ reaching the service
+
+
+def test_the_request_reaches_the_service_intact() -> None:
+    service = FakeSlackService()
+
+    client_with(service).post(ENDPOINT, json=payload(max_messages=42))
+
+    assert service.calls == [
+        {"token": TOKEN, "channel_id": CHANNEL, "max_messages": 42}
+    ]
+
+
+def test_an_absent_cap_reaches_the_service_as_none() -> None:
+    service = FakeSlackService()
+
+    client_with(service).post(ENDPOINT, json=payload())
+
+    assert service.calls[0]["max_messages"] is None
+
+
+def test_full_is_not_passed_to_the_service() -> None:
+    """It shortens the response, so it is the route's business, not the pipeline's."""
+    service = FakeSlackService()
+
+    client_with(service).post(ENDPOINT, json=payload(full=True))
+
+    assert "full" not in service.calls[0]
+
+
+# --------------------------------------------------------------- validation
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"channel_id": CHANNEL},  # no token
+        {"token": TOKEN},  # no channel
+        {},
+    ],
+)
+def test_a_missing_required_field_is_rejected(body: dict) -> None:
+    assert TestClient(app).post(ENDPOINT, json=body).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "channel_id",
+    [
+        "",
+        "C",  # too short to be an id
+        "#engineering",  # a name, not an id
+        "C012345/../C999999",
+        "C012345 6789",
+        "C012345-6789",
+        "https://example.slack.com/archives/C0123456789",
+        "C" * 64,
+    ],
+)
+def test_an_unusable_channel_id_is_rejected(channel_id: str) -> None:
+    response = TestClient(app).post(ENDPOINT, json=payload(channel_id=channel_id))
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "channel_id",
+    [
+        "C0123456789",  # public channel
+        "G0123456789",  # private channel
+        "D0123456789",  # direct message
+        "C01234567",  # the older, shorter form
+        "C0123456789ABCDEFGH",  # enterprise-length
+    ],
+)
+def test_a_plausible_channel_id_is_accepted(channel_id: str) -> None:
+    """Slack has changed the shape of these before; validation stays wide."""
+    service = FakeSlackService()
+
+    response = client_with(service).post(
+        ENDPOINT, json=payload(channel_id=channel_id)
+    )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("max_messages", [0, -1, -100])
+def test_a_non_positive_cap_is_rejected(max_messages: int) -> None:
+    response = TestClient(app).post(
+        ENDPOINT, json=payload(max_messages=max_messages)
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("max_messages", ["ten", 1.5, [], {}])
+def test_a_cap_that_is_not_a_whole_number_is_rejected(max_messages: object) -> None:
+    response = TestClient(app).post(
+        ENDPOINT, json=payload(max_messages=max_messages)
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"oldest": "1754810101.000000"},
+        {"latest": "1754899999.000000"},
+        {"inclusive": True},
+        {"thread_ts": TS},
+        {"channels": ["C0123456789", "C9999999999"]},
+        {"cursor": "dXNlcjpVMDYxTkZUVDI="},
+    ],
+)
+def test_an_unknown_field_is_rejected(extra: dict) -> None:
+    """The API accepts a token and one channel. Nothing may widen a run."""
+    response = TestClient(app).post(ENDPOINT, json=payload(**extra))
+
+    assert response.status_code == 422
+
+
+def test_a_body_that_is_not_an_object_is_rejected() -> None:
+    assert TestClient(app).post(ENDPOINT, json=[1, 2, 3]).status_code == 422
+
+
+# ------------------------------------------------------------ error mapping
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (SlackAuthenticationError(), 401),
+        (SlackPermissionError(), 403),
+        (SlackNotFoundError(), 404),
+        (SlackRateLimitError(), 429),
+        (SlackApiError(), 502),
+        (IngestionError(), 500),
+    ],
+)
+def test_pipeline_errors_map_to_http_statuses(
+    error: IngestionError, status: int
+) -> None:
+    response = client_with(FakeSlackService(error=error)).post(
+        ENDPOINT, json=payload()
+    )
+
+    assert response.status_code == status
+    assert response.json() == {"detail": error.message}
+
+
+def test_an_error_response_carries_no_partial_result() -> None:
+    response = client_with(FakeSlackService(error=SlackRateLimitError())).post(
+        ENDPOINT, json=payload()
+    )
+
+    assert set(response.json()) == {"detail"}
+
+
+# ----------------------------------------------------------------- sampling
+
+
+def test_the_message_list_is_sampled_by_default() -> None:
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(40)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(40)],
+    )
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert len(body["messages"]) == SAMPLE_MESSAGES_LIMIT
+    assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
+
+
+def test_sampling_leaves_the_counts_alone() -> None:
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(40)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(40)],
+    )
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["parsed_messages"] == 40
+    assert body["generated_chunks"] == 40
+
+
+def test_sampling_does_not_set_truncated() -> None:
+    """The regression test this file exists for."""
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(40)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(40)],
+        truncated=False,
+    )
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert len(body["messages"]) < body["parsed_messages"]
+    assert body["truncated"] is False
+
+
+def test_truncated_survives_into_the_response() -> None:
+    result = make_result(truncated=True)
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["truncated"] is True
+
+
+def test_truncated_is_unaffected_by_full() -> None:
+    result = make_result(truncated=True)
+
+    body = client_with(FakeSlackService(result)).post(
+        ENDPOINT, json=payload(full=True)
+    ).json()
+
+    assert body["truncated"] is True
+
+
+def test_long_chunk_text_is_shortened_for_display() -> None:
+    chunk = make_chunk(content="x" * (CHUNK_CONTENT_PREVIEW_CHARS + 500))
+    result = make_result(chunks=[chunk])
+
+    body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
+
+    assert body["sample_chunks"][0]["content"].endswith("... [truncated]")
+
+
+def test_short_chunk_text_is_left_alone() -> None:
+    body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
+
+    assert not body["sample_chunks"][0]["content"].endswith("... [truncated]")
+
+
+# --------------------------------------------------------------------- full
+
+
+def test_full_returns_every_message_and_chunk() -> None:
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(40)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(40)],
+    )
+
+    body = client_with(FakeSlackService(result)).post(
+        ENDPOINT, json=payload(full=True)
+    ).json()
+
+    assert len(body["messages"]) == 40
+    assert len(body["sample_chunks"]) == 40
+
+
+def test_full_leaves_chunk_text_untouched() -> None:
+    content = "y" * (CHUNK_CONTENT_PREVIEW_CHARS + 500)
+    result = make_result(chunks=[make_chunk(content=content)])
+
+    body = client_with(FakeSlackService(result)).post(
+        ENDPOINT, json=payload(full=True)
+    ).json()
+
+    assert body["sample_chunks"][0]["content"] == content
+
+
+def test_full_does_not_change_the_counts() -> None:
+    result = make_result(
+        messages=[make_message(f"10{n:02d}.000100") for n in range(40)],
+        chunks=[make_chunk(f"10{n:02d}.000100") for n in range(40)],
+        retrieved_messages=120,
+    )
+
+    sampled = client_with(FakeSlackService(result)).post(
+        ENDPOINT, json=payload()
+    ).json()
+    complete = client_with(FakeSlackService(result)).post(
+        ENDPOINT, json=payload(full=True)
+    ).json()
+
+    for count in ("retrieved_messages", "parsed_messages", "generated_chunks"):
+        assert sampled[count] == complete[count]
+
+
+# ---------------------------------------------------------------- security
+
+
+def test_the_token_never_comes_back_in_a_successful_response() -> None:
+    response = client_with(FakeSlackService()).post(ENDPOINT, json=payload())
+
+    assert TOKEN not in response.text
+
+
+def test_the_token_never_comes_back_in_a_validation_response() -> None:
+    """422 bodies echo the input, which is exactly where a token would surface."""
+    response = TestClient(app).post(ENDPOINT, json=payload(channel_id="#nope"))
+
+    assert response.status_code == 422
+    assert TOKEN not in response.text
+
+
+def test_the_token_never_comes_back_in_an_error_response() -> None:
+    response = client_with(FakeSlackService(error=SlackAuthenticationError())).post(
+        ENDPOINT, json=payload()
+    )
+
+    assert response.status_code == 401
+    assert TOKEN not in response.text
+
+
+def test_the_token_is_masked_in_every_serialisation() -> None:
+    request = SlackIngestRequest(**payload())
+
+    assert TOKEN not in repr(request)
+    assert TOKEN not in str(request.model_dump())
+    assert TOKEN not in request.model_dump_json()
+    assert request.token.get_secret_value() == TOKEN
+
+
+def test_the_token_never_reaches_the_logs(caplog) -> None:
+    with caplog.at_level("DEBUG"):
+        client_with(FakeSlackService()).post(ENDPOINT, json=payload())
+
+    assert TOKEN not in caplog.text
+    assert "xoxb-slack-secret" not in caplog.text
+
+
+# ----------------------------------------------------------------- openapi
+
+
+def test_openapi_documents_the_endpoint() -> None:
+    """Swagger UI at /docs is the manual test path described in the README."""
+    schema = TestClient(app).get("/openapi.json").json()
+
+    assert ENDPOINT in schema["paths"]
+    assert "/api/v1/confluence/ingest" in schema["paths"]
+    assert "/api/v1/jira/ingest" in schema["paths"]
+    assert "/api/v1/github/ingest" in schema["paths"]
+
+
+def test_the_endpoint_is_tagged_as_slack() -> None:
+    schema = TestClient(app).get("/openapi.json").json()
+
+    assert schema["paths"][ENDPOINT]["post"]["tags"] == ["slack"]
+
+
+def test_adding_slack_did_not_disturb_the_health_check() -> None:
+    assert TestClient(app).get("/health").json() == {"status": "ok"}
