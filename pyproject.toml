@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "context-core-api"
+version = "0.1.0"
+description = "Ingestion stage one: pulls TypeScript source out of GitHub and Epics/Stories out of Jira, and turns both into chunks."
+requires-python = ">=3.11"
+
+# httpx is a runtime dependency, not a test one: the Jira connector's HTTP
+# client. It has to be here rather than in [dev] because app.main imports the
+# Jira router, so a missing httpx would break the GitHub path too.
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "PyGithub",
+    "httpx",
+    "tree-sitter",
+    "tree-sitter-typescript",
+]
+
+# Test-only tools. Installed with: pip install -e ".[dev]"
+# httpx2 is the HTTP client Starlette's TestClient runs on; current Starlette
+# deprecates the original httpx in its place. The two coexist deliberately and
+# are separate importable modules - httpx2 serves the test client, httpx serves
+# the Jira connector.
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx2",
+]
+
+# Listed explicitly so setuptools does not try to guess the layout.
+[tool.setuptools]
+packages = [
+    "app",
+    "app.api",
+    "app.connectors",
+    "app.core",
+    "app.ingestion",
+    "app.ingestion.parser",
+    "app.models",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["app/tests"]
