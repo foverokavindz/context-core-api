@@ -37,4 +37,4 @@ checklist for verifying it against a real account.
 
 | Page | What's in it |
 | --- | --- |
-| [entities.md](entities.md) | The database layer: departments, job titles, users, and what is deliberately not there yet |
+| [entities.md](entities.md) | The database layer: departments, job titles, users, teams, and what is deliberately not there yet |

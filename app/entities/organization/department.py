@@ -8,6 +8,7 @@ from app.entities.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.entities.organization.job_title import JobTitle
     from app.entities.organization.user import User
+    from app.entities.teams.team import Team
 
 
 class Department(UUIDMixin, TimestampMixin, Base):
@@ -20,3 +21,4 @@ class Department(UUIDMixin, TimestampMixin, Base):
 
     job_titles: Mapped[list["JobTitle"]] = relationship(back_populates="department")
     users: Mapped[list["User"]] = relationship(back_populates="department")
+    teams: Mapped[list["Team"]] = relationship(back_populates="department")

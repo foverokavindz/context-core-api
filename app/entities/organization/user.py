@@ -11,6 +11,8 @@ from app.entities.organization.application_role import ApplicationRole
 if TYPE_CHECKING:
     from app.entities.organization.department import Department
     from app.entities.organization.job_title import JobTitle
+    from app.entities.teams.team import Team
+    from app.entities.teams.team_member import TeamMember
 
 
 class User(UUIDMixin, TimestampMixin, Base):
@@ -60,3 +62,6 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     department: Mapped["Department | None"] = relationship(back_populates="users") # populate the department relationship with the User model
     job_title: Mapped["JobTitle | None"] = relationship(back_populates="users") # populate the job_title relationship with the User model
+
+    created_teams: Mapped[list["Team"]] = relationship(back_populates="creator") # teams this user created, which is not the same as the team they are in
+    team_membership: Mapped["TeamMember | None"] = relationship(back_populates="user") # the one team this user belongs to, if any - team_members.user_id is unique

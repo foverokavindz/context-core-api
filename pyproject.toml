@@ -53,6 +53,7 @@ packages = [
     "app.core",
     "app.entities",
     "app.entities.organization",
+    "app.entities.teams",
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",
