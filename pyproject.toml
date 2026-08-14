@@ -21,6 +21,12 @@ requires-python = ">=3.11"
 # SQLAlchemy is the ORM behind app/entities. No database driver is listed with
 # it yet: nothing in this version opens a connection, so the entities exist as
 # metadata only. psycopg (or asyncpg) joins this list when the engine does.
+#
+# pgvector is here for its SQLAlchemy type alone - chunks.embedding is declared
+# as JSON().with_variant(Vector(1536), "postgresql"), so importing app.entities
+# needs the type even though nothing yet writes a vector. It is a pure-python
+# package with no client library behind it; the CREATE EXTENSION that makes the
+# column work on a real server belongs to the first migration.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -31,6 +37,7 @@ dependencies = [
     "tree-sitter",
     "tree-sitter-typescript",
     "sqlalchemy>=2.0",
+    "pgvector",
 ]
 
 # Test-only tools. Installed with: pip install -e ".[dev]"
@@ -53,6 +60,7 @@ packages = [
     "app.core",
     "app.entities",
     "app.entities.data_sources",
+    "app.entities.knowledge_sources",
     "app.entities.organization",
     "app.entities.teams",
     "app.ingestion",

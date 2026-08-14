@@ -10,10 +10,11 @@ handed to a chunker or serialised into a response, and then gone. Nothing in it
 is a table. `app/entities/` is the other thing — rows that outlive a request.
 The two live in separate packages so neither drifts into doing the other's job.
 
-This page covers three groups: **organization** — departments, job titles, and
+This page covers four groups: **organization** — departments, job titles, and
 the people in them — **teams**, the working groups those people are actually in,
-and **data_sources**, the external systems a team has connected and the record of
-each attempt to ingest from them.
+**data_sources**, the external systems a team has connected and the record of
+each attempt to ingest from them, and **knowledge_sources**, what those systems
+produced: the searchable items and the chunks a later retrieval step ranks.
 
 ## What exists, and what does not
 
@@ -29,14 +30,20 @@ app/entities/
 │   ├── member_role.py            MemberRole (an enum, not a table)
 │   ├── team.py                   teams
 │   └── team_member.py            team_members
-└── data_sources/
-    ├── credential_type.py        CredentialType (an enum, not a table)
-    ├── source_type.py            SourceType (an enum, not a table)
-    ├── source_status.py          SourceStatus (an enum, not a table)
-    ├── sync_run_status.py        SyncRunStatus (an enum, not a table)
-    ├── source_credentials.py     source_credentials
-    ├── external_data_source.py   external_data_sources
-    └── sync_run.py               sync_runs
+├── data_sources/
+│   ├── credential_type.py        CredentialType (an enum, not a table)
+│   ├── source_type.py            SourceType (an enum, not a table)
+│   ├── source_status.py          SourceStatus (an enum, not a table)
+│   ├── sync_run_status.py        SyncRunStatus (an enum, not a table)
+│   ├── source_credentials.py     source_credentials
+│   ├── external_data_source.py   external_data_sources
+│   └── sync_run.py               sync_runs
+└── knowledge_sources/
+    ├── resource_type.py          ResourceType (an enum, not a table)
+    ├── resource_access_scope.py  ResourceAccessScope (an enum, not a table)
+    ├── chunk_type.py             ChunkType (an enum, not a table)
+    ├── resource.py               resources
+    └── chunk.py                  chunks
 ```
 
 **There is no engine, no session factory, no `DATABASE_URL` and no Alembic.**
@@ -47,7 +54,10 @@ is unchanged. The engine arrives with the first code that actually reads or
 writes a row, and the driver (`psycopg` or `asyncpg`) arrives with it.
 
 `sqlalchemy>=2.0` is a runtime dependency; no database driver is listed yet, for
-the same reason.
+the same reason. `pgvector` is a runtime dependency too, and it is *not* a
+driver: it is a pure-python package that contributes a SQLAlchemy type, which
+`chunks.embedding` needs at import time even though nothing writes a vector yet.
+See [`chunks`](#chunks) below.
 
 ## The shape
 
@@ -90,6 +100,19 @@ every repository a team has connected. Reading a source's team through its
 credential would break the moment a source has no credential yet, which is the
 normal state during setup.
 
+What a source *produced* hangs off it separately, and that chain is the whole
+point of the schema:
+
+```
+ExternalDataSource 1 ───── * Resource 1 ───── * Chunk
+```
+
+A `SyncRun` counts resources and chunks; it does not own them. A run is the
+record of an *attempt*, and its counters are still true after the rows it wrote
+have been replaced by a later run — which is why `resources.sync_run_id` does not
+exist. A resource belongs to the source it came from, not to the execution that
+happened to fetch it that day.
+
 | Relationship | Reverse |
 | --- | --- |
 | `Department.job_titles` | `JobTitle.department` |
@@ -104,18 +127,32 @@ normal state during setup.
 | `SourceCredentials.external_data_sources` | `ExternalDataSource.credential` |
 | `ExternalDataSource.creator` | `User.created_external_data_sources` |
 | `ExternalDataSource.sync_runs` | `SyncRun.external_data_source` |
+| `ExternalDataSource.resources` | `Resource.external_data_source` |
+| `Team.resources` | `Resource.team` |
+| `Department.resources` | `Resource.department` |
+| `Resource.chunks` | `Chunk.resource` |
+| `Team.chunks` | `Chunk.team` |
+| `Department.chunks` | `Chunk.department` |
 
 `User.team_membership` is the only singular one: `TeamMember | None`, not a
 list, because the unique constraint means a list could never hold more than one
 element. `User.created_teams` beside it *is* a list — creating teams is not
 limited, only belonging to them.
 
-**No relationship carries a delete cascade** — not even `team_members`, which is
-a join table and the one place a cascade would look routine. Deleting a
-department must never take its users with it; people outlive reorganisations.
-The foreign keys are left at the database default (`NO ACTION`), so rows still
-pointing at a parent stop its deletion and a human decides where they go.
-Reassignment will be an explicit operation in the service layer.
+**One relationship carries a delete cascade, and it is `Resource.chunks`.**
+Everywhere else the answer is no — not even `team_members`, which is a join table
+and the place a cascade would look most routine. Deleting a department must never
+take its users with it; people outlive reorganisations. The foreign keys are left
+at the database default (`NO ACTION`), so rows still pointing at a parent stop its
+deletion and a human decides where they go. Reassignment will be an explicit
+operation in the service layer.
+
+Chunks are the exception because they are not independent facts. A chunk is a
+slice of its resource's text and exists only to be embedded; re-ingesting a
+resource replaces every one of them, and a chunk whose resource is gone is not a
+row anybody has to decide about — it is debris. `cascade="all, delete-orphan"` on
+`Resource.chunks` says exactly that, and it is the only place in this schema that
+says it. See [`chunks`](#chunks) for what the cascade does and does not cover.
 
 Deleting a `Team` therefore fails while it still has members, rather than
 quietly emptying `team_members` — its `team_id` is `NOT NULL`, so SQLAlchemy's
@@ -435,6 +472,223 @@ column would create a second place for that fact to be wrong. If a query for "ev
 run in this team" ever needs the join removed, that is a measured decision with a
 migration behind it, not a column added on speculation.
 
+## `resources`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `external_data_source_id` | `UUID` | → `external_data_sources.id`, **nullable** |
+| `document_id` | `UUID` | **nullable, and carries no foreign key** |
+| `resource_type` | `resource_type` | NOT NULL |
+| `external_id` | `VARCHAR(512)` | nullable |
+| `title` | `VARCHAR(1024)` | nullable |
+| `version_key` | `VARCHAR(255)` | nullable |
+| `access_scope` | `resource_access_scope` | NOT NULL |
+| `team_id` | `UUID` | → `teams.id`, nullable |
+| `department_id` | `UUID` | → `departments.id`, nullable |
+| `resource_metadata` | `JSONB` | nullable |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+One row is one original piece of knowledge, *before* it was cut up: a file, an
+issue, a page, a message, and later an uploaded document.
+
+```
+GitHub file       → Resource(GITHUB_FILE)
+Jira issue        → Resource(JIRA_ISSUE)
+Confluence page   → Resource(CONFLUENCE_PAGE)
+Slack message     → Resource(SLACK_MESSAGE)
+Uploaded PDF      → Resource(DOCUMENT)
+```
+
+**A resource has two possible origins and exactly one of them is a real foreign
+key.** `external_data_source_id` points at the connected system it was fetched
+from and is `NULL` for anything uploaded; `document_id` is the other half, and it
+is a bare `UUID` column with **no `REFERENCES`** because the `documents` table
+does not exist yet. Declaring `ForeignKey("documents.id")` today would break
+`Base.metadata.create_all()` outright, and inventing a placeholder `Document`
+entity to satisfy it would be worse — a table nothing writes, existing only to
+make a constraint compile. The column is reserved, the constraint arrives with
+the entity, and until then nothing enforces that a `document_id` points at
+anything. That is in [todo.md](todo.md).
+
+**`external_id` is how the *source* names the item**, and it only means anything
+inside that source:
+
+```
+GitHub      src/auth/auth.service.ts
+Jira        TRACK-25
+Confluence  7110680
+Slack       C0123456789:1786134970.186879
+```
+
+Slack has no single id for a message, so the stable pair — channel and timestamp —
+is joined into one. Re-ingestion is what this column is for: it is how a second
+run recognises the item it already wrote a row for, rather than inserting a
+duplicate.
+
+**`version_key` is optional provenance**, one column rather than one per source:
+a commit SHA for GitHub, a page version number for Confluence, a checksum for a
+document. Jira and Slack have nothing to put in it, so it is nullable and stays
+nullable — a `github_commit_sha` column would be `NULL` on three quarters of this
+table and would need a sibling for every source added later.
+
+**`resource_metadata` is the source-specific remainder**, the same trade
+`external_data_sources.config` makes one table up:
+
+```json
+{ "repository": "Asteron-Labs/TrackIt", "branch": "main", "file_path": "src/auth/auth.service.ts" }
+{ "issue_key": "TRACK-25", "parent_key": "TRACK-10" }
+{ "space_key": "TR", "page_id": "7110680" }
+{ "channel_id": "C0123456789", "message_ts": "1786134970.186879" }
+```
+
+**No permission field goes in here.** Access is decided by three real columns, and
+a rule that lives inside a JSON document is a rule no index can serve and no
+constraint can ever check.
+
+**The resource is the source of truth for who may read it.** `access_scope` says
+which rule applies and the two nullable foreign keys say who it applies to:
+
+| `access_scope` | `team_id` | `department_id` | Who reads it |
+| --- | --- | --- | --- |
+| `TEAM` | the owning team | `NULL` | members of that team |
+| `DEPARTMENT` | `NULL` | the owning department | everyone in that department |
+| `ORGANIZATION` | `NULL` | `NULL` | every authenticated user |
+
+**Nothing in the schema enforces that pairing.** A `TEAM` resource with a `NULL`
+`team_id` is a valid row today, as is an `ORGANIZATION` one with a `team_id` set.
+A `CHECK` could express it, and the reason there is not one yet is that the rule
+belongs with the authorisation code that reads these columns, which does not
+exist. It is in [todo.md](todo.md) with the rest.
+
+## `chunks`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `resource_id` | `UUID` | → `resources.id`, NOT NULL |
+| `chunk_index` | `INTEGER` | NOT NULL, unique *within* the resource |
+| `chunk_type` | `chunk_type` | nullable |
+| `content` | `TEXT` | NOT NULL |
+| `embedding` | `VECTOR(1536)` | nullable |
+| `embedding_model` | `VARCHAR(255)` | nullable |
+| `content_hash` | `VARCHAR(64)` | nullable |
+| `chunk_metadata` | `JSONB` | nullable |
+| `access_scope` | `resource_access_scope` | NOT NULL, a **copy** of the resource's |
+| `team_id` | `UUID` | → `teams.id`, nullable, a **copy** |
+| `department_id` | `UUID` | → `departments.id`, nullable, a **copy** |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+One row is one embeddable piece of a resource, and this is the table retrieval
+will actually read.
+
+```
+Resource: src/auth/auth.service.ts
+ ├── Chunk 0   CLASS     AuthService
+ ├── Chunk 1   METHOD    login
+ └── Chunk 2   METHOD    refresh
+```
+
+**`content` and `embedding` live in the same row**, which is the point of the
+table: a vector search ranks rows and the text it ranked comes back with them,
+with no second lookup and no chance of the two drifting apart.
+
+**`embedding` is `vector(1536)` on PostgreSQL and `JSON` everywhere else.** It is
+declared as `JSON().with_variant(Vector(1536), "postgresql")` — the same shape
+`config`, `credential_metadata` and `run_metadata` use with `JSONB`, and the same
+trade `UUIDMixin` makes with `Uuid`. PostgreSQL gets a real pgvector column with
+everything that implies, and SQLite gets a JSON array, so `create_all` in a test
+still builds a table this project can insert into.
+
+Two things that column does *not* do. It does not create the extension — a real
+server needs `CREATE EXTENSION vector`, and that belongs to the first migration.
+And it has no `ivfflat` or `hnsw` index; an approximate-nearest-neighbour index is
+tuned against a real corpus and a real dimension, and adding one against an empty
+table would be guesswork.
+
+**1536 is pinned deliberately.** It is the width of `text-embedding-3-small` and
+`text-embedding-ada-002`. A different model means a different number, and a
+different number means a migration whichever way the column had been declared, so
+there is nothing to be gained by leaving it open.
+
+`embedding_model` records which model produced the vector, so a model change can
+be found rather than inferred. `content_hash` has room for a sha256 hex digest and
+exists so re-ingestion can skip re-embedding text that did not change. **Neither
+is computed here** — no default, no event, no `hashlib` import. The ingestion
+service hashes and embeds, and the entity holds what it wrote.
+
+**`chunk_type` is nullable**, unlike `resource_type`. A chunker that only splits
+prose has nothing honest to put there, and a wrong value is worse than none:
+
+```
+GitHub      FILE / CLASS / METHOD / FUNCTION
+Jira        ISSUE
+Confluence  PAGE
+Slack       MESSAGE
+Document    DOCUMENT / DOCUMENT_SECTION
+```
+
+`chunk_metadata` holds what is true of *this piece* and not of the whole
+resource — `{"symbol_name": "login", "parent_symbol": "AuthService", "start_line":
+25, "end_line": 62}`. The repository and branch are already on the resource, and
+copying them onto every chunk would be a second place for them to be wrong.
+
+**`UNIQUE(resource_id, chunk_index)`** means a resource cannot hold the same
+position twice, so a re-run that writes chunk 3 again collides instead of
+quietly duplicating it.
+
+### Why the permission columns are here twice
+
+`access_scope`, `team_id` and `department_id` are on `chunks` as well as
+`resources`, and they are **denormalized copies**. The resource remains
+authoritative.
+
+They are copied because of the query this table exists to serve. Retrieval
+filters on permission and *then* ranks by distance, over chunk rows:
+
+```sql
+WHERE access_scope = 'ORGANIZATION'
+   OR (access_scope = 'TEAM'       AND team_id IN (...))
+   OR (access_scope = 'DEPARTMENT' AND department_id = ...)
+```
+
+Reaching those values through `resources` would mean a join inside the hot path of
+every search, and would defeat an index the vector search wants to use directly.
+None of that query is implemented yet; the columns it needs are.
+
+**Nothing keeps the copy in step, on purpose.** No ORM event, no `default`, no
+validator, no trigger. A chunk whose `team_id` disagrees with its resource's is a
+valid row that this schema will accept, and the fix is not entity-level magic —
+the ingestion service creates chunks from the resource's permission context, in
+one place, where it can be read and tested:
+
+```
+Resource  access_scope = TEAM, team_id = Backend Team
+    ↓ chunk creation
+Chunk     access_scope = TEAM, team_id = Backend Team
+```
+
+That is the same reasoning that keeps `last_synced_at` out of an `onupdate` and
+`Team.created_by_user_id` from implying a membership. The drift it allows is in
+[todo.md](todo.md).
+
+### What the cascade covers
+
+`Resource.chunks` is `cascade="all, delete-orphan"`, and it is **a SQLAlchemy
+session behaviour, not `ON DELETE CASCADE`**. The foreign key itself is left at
+`NO ACTION` like every other one here.
+
+The difference matters. Deleting a resource *through a session* issues the
+`DELETE` for its chunks first and both go. A raw `DELETE FROM resources` in psql
+is still refused by the database while chunks point at it — which is the safe way
+round: the convenience exists for the code that owns these rows, and a hand-written
+statement gets no help it did not ask for.
+
+Deleting a chunk never touches its resource; the relationship only runs one way.
+And nothing above resource is affected — deleting a `Team`, a `Department` or an
+`ExternalDataSource` is still refused while resources reference them, so no
+disconnect or reorganisation can quietly erase a corpus.
+
 ## `ApplicationRole`
 
 ```python
@@ -585,6 +839,83 @@ GitHub TrackIt   status = ACTIVE       (on the source)
 Which failures move a source to `ERROR`, and what clears it, is not decided here;
 it is in [todo.md](todo.md).
 
+## `ResourceType`
+
+```python
+class ResourceType(str, Enum):
+    GITHUB_FILE = "GITHUB_FILE"
+    JIRA_ISSUE = "JIRA_ISSUE"
+    CONFLUENCE_PAGE = "CONFLUENCE_PAGE"
+    SLACK_MESSAGE = "SLACK_MESSAGE"
+    DOCUMENT = "DOCUMENT"
+```
+
+What the original item *is*. Stored on `resources`, a native `resource_type` enum
+in PostgreSQL, a closed set for the reason every enum here is one.
+
+**It is not `SourceType` with different spelling, and this is the group where the
+two most look alike.** `SourceType` says which system a connection talks to;
+`ResourceType` says what came out of it. They are one-to-one today only because
+each connector currently produces one kind of thing — a GitHub source that later
+ingests pull requests as well as files would produce two `ResourceType`s from one
+`SourceType`, and nothing about the schema would have to change.
+
+**`DOCUMENT` is here and deliberately absent from `SourceType`.** An upload has no
+credential, no config and nothing to re-sync, so it is not a connected source —
+but it is very much a piece of knowledge, and it ends up in this table alongside
+the rest. That asymmetry is the whole reason `resources` has two possible origins.
+
+## `ResourceAccessScope`
+
+```python
+class ResourceAccessScope(str, Enum):
+    TEAM = "TEAM"
+    DEPARTMENT = "DEPARTMENT"
+    ORGANIZATION = "ORGANIZATION"
+```
+
+Who may read a resource. Stored on **both** `resources` and `chunks` — one native
+`resource_access_scope` type in PostgreSQL, used by two tables, which is why the
+name is not `resource_scope` or `chunk_scope`.
+
+Not a lookup table, and here that is a stronger claim than usual: these three are
+not data an administrator adds to, they are three *branches* in an authorisation
+check that does not exist yet. A fourth row inserted into a table could not give
+itself a rule.
+
+The scope names an audience, and the audience it names is looked up elsewhere —
+`TEAM` means whatever `team_members` says, `DEPARTMENT` means whatever
+`users.department_id` says. The resource stores the rule, not the list of people.
+
+## `ChunkType`
+
+```python
+class ChunkType(str, Enum):
+    FILE = "FILE"
+    CLASS = "CLASS"
+    METHOD = "METHOD"
+    FUNCTION = "FUNCTION"
+
+    ISSUE = "ISSUE"
+    PAGE = "PAGE"
+    MESSAGE = "MESSAGE"
+
+    DOCUMENT = "DOCUMENT"
+    DOCUMENT_SECTION = "DOCUMENT_SECTION"
+```
+
+The semantic shape of one chunk, grouped by where it comes from: the first four
+from the TypeScript parser, then one each from Jira, Confluence and Slack, then
+the two an uploaded document will produce.
+
+Every member matches something a chunker in `app/ingestion/` produces today — that
+is the constraint on this enum, and it is why there is no `PARAGRAPH`, no
+`INTERFACE`, no `COMMENT`. Those are all plausible and none of them has code
+behind it, and a value nothing writes is a value every reader has to guess at.
+Adding one when its chunker exists is an `ALTER TYPE` in a migration.
+
+Unlike the other enums here it is stored **nullable** — see [`chunks`](#chunks).
+
 ## Constraints and indexes
 
 ```sql
@@ -607,6 +938,19 @@ ix_external_data_sources_source_type       INDEX
 ix_external_data_sources_status            INDEX
 ix_sync_runs_external_data_source_id       INDEX
 ix_sync_runs_status                        INDEX
+
+uq_resources_external_data_source_id_external_id  UNIQUE (external_data_source_id, external_id)
+uq_chunks_resource_id_chunk_index                 UNIQUE (resource_id, chunk_index)
+ix_resources_document_id                   INDEX
+ix_resources_resource_type                 INDEX
+ix_resources_external_id                   INDEX
+ix_resources_access_scope                  INDEX
+ix_resources_team_id                       INDEX
+ix_resources_department_id                 INDEX
+ix_chunks_chunk_type                       INDEX
+ix_chunks_access_scope                     INDEX
+ix_chunks_team_id                          INDEX
+ix_chunks_department_id                    INDEX
 ```
 
 Two of these are worth explaining, since both look like something is missing.
@@ -630,6 +974,38 @@ The columns that get one for the same reason: `teams.created_by_user_id`, for
 **`users.username` uses a plain unique constraint, not a partial index.** SQL
 treats NULLs as distinct from one another, so `UNIQUE` already allows any number
 of users without a username while still rejecting a duplicate of one that is set.
+
+**The knowledge group brings the rule back**, and the two omissions it produces are
+the ones most likely to look like mistakes. `resources.external_data_source_id`
+has no index of its own and neither does `chunks.resource_id` — each is the
+leading column of the composite unique constraint above, which already builds that
+btree and answers "every resource from this source" and "every chunk of this
+resource" with it.
+
+`resources.external_id` *does* get one, because it is the constraint's **second**
+column and a leading-column index cannot serve it. That index is what a
+re-ingestion uses to find the row it wrote last time.
+
+**`UNIQUE(external_data_source_id, external_id)` scopes uniqueness to the source,
+and it has to.** `TRACK-25` is a Jira key and means nothing outside its project;
+two sources may legitimately each hold a file called `README.md`. A global unique
+index on `external_id` would reject the second one. The constraint also handles
+uploaded documents for free — both columns are `NULL` on those rows, SQL treats
+NULLs as distinct, and any number of them coexist. It is the same property
+`users.username` relies on, two groups up.
+
+`resource_type`, `access_scope` and `chunk_type` are indexed for the reason
+`source_type` and `status` are: each carries a listing or filtering query rather
+than a lookup, and `access_scope` in particular sits in the `WHERE` clause of
+every retrieval this table was built for. `team_id` and `department_id` are
+indexed on both tables for the same reason — including on `chunks`, where they are
+copies, because filtering chunk rows directly is the point of copying them.
+
+The same caveat about low-cardinality btrees applies here more than anywhere:
+`access_scope` has three values and `chunks` is the table expected to grow into
+the millions. A partial index on the interesting scope, or a composite with
+`team_id`, is where that goes when there is a real corpus to measure. The plain
+index is the right starting point and the wrong finishing point.
 
 **The data source group has no unique constraint at all**, so every foreign key
 there carries its own index — there is no composite constraint to serve as one.
@@ -691,6 +1067,16 @@ source belonging to another. Every one of those is a valid row today. They are
 collected in [todo.md](todo.md) rather than repeated here, because each one is
 work with an owner, not a gap in the schema.
 
+The knowledge group adds three more, and they are the largest of the set because
+they concern who can read what. A resource's `access_scope` is not checked against
+its `team_id` and `department_id`, so `TEAM` with no team is a valid row. A
+chunk's three permission columns are not checked against its resource's, so they
+can drift. And a `document_id` points at nothing, because there is nothing yet for
+it to point at. All three are in [todo.md](todo.md), and none of them is a
+constraint the database should be given before the service that maintains it
+exists — a `CHECK` written now would be enforcing a rule no code has yet had to
+state out loud.
+
 ## Import graph
 
 ```
@@ -709,32 +1095,49 @@ team_member.py          ->  base, member_role
 source_credentials.py   ->  base, credential_type
 external_data_source.py ->  base, source_type, source_status
 sync_run.py             ->  base, sync_run_status
+resource_type.py        ->  (nothing)
+resource_access_scope.py -> (nothing)
+chunk_type.py           ->  (nothing)
+resource.py             ->  base, resource_type, resource_access_scope
+chunk.py                ->  base, chunk_type, resource_access_scope, pgvector
 ```
 
 No entity module imports another entity module at runtime — not across any of
-the three groups. They name each other only as strings in their relationships,
+the four groups. They name each other only as strings in their relationships,
 with the concrete types pulled in under `if TYPE_CHECKING:` for the annotations,
 so no cycle can form. `Team` referring back to `Department` and `Department`
 referring forward to `Team` costs nothing at import time, and neither does
 `SourceCredentials` and `ExternalDataSource` naming each other from inside the
 same group.
 
+`resource.py` and `chunk.py` are the pair where that rule is doing real work.
+`Resource.chunks` and `Chunk.resource` name each other, and both reach out to
+`Team` and `Department` in a third group which reach back — a straight import
+would be a cycle in two directions at once. Both files also import
+`resource_access_scope`, which is exactly why the enums live in their own modules:
+a shared enum in `resource.py` would have forced `chunk.py` to import it.
+
+`chunk.py` is the one entity module with a third-party import,
+`pgvector.sqlalchemy.Vector`. It is a type, not a client — nothing about it opens
+a connection — but it does mean `pgvector` has to be installed for
+`app.entities` to import at all.
+
 The consequence: **importing a module is what makes its mapper real to
-SQLAlchemy**, and the three groups now depend on each other's mappers.
+SQLAlchemy**, and the four groups now depend on each other's mappers.
 `Department.teams` needs `Team` to exist before `configure_mappers()` can resolve
-it, `Team.external_data_sources` needs `ExternalDataSource`, and so on across all
-three groups. Import the top-level package:
+it, `Team.external_data_sources` needs `ExternalDataSource`, `Resource.chunks`
+needs `Chunk`, and so on across all four groups. Import the top-level package:
 
 ```python
-from app.entities import ExternalDataSource, SourceCredentials, SyncRun, Team, User
+from app.entities import Chunk, ExternalDataSource, Resource, Team, User
 ```
 
-`app/entities/__init__.py` imports all three groups, which registers every mapper
+`app/entities/__init__.py` imports all four groups, which registers every mapper
 and fills `Base.metadata`.
 
-Importing a single group happens to work too — `import app.entities.teams` runs
+Importing a single group happens to work too — `import app.entities.knowledge_sources` runs
 `app/entities/__init__.py` first, because Python imports a parent package before
-its child, and that is the file which pulls in the other two. It is worth knowing
+its child, and that is the file which pulls in the other three. It is worth knowing
 that this is *why* it works, and not to build on it: it is a side effect of where
 the imports sit, and it would stop being true the moment `__init__.py` imported
 groups lazily. Import the package that promises every mapper, not the one that
@@ -742,17 +1145,27 @@ happens to reach them.
 
 ## Not implemented yet
 
-These are the first three entity groups of a larger model. Deliberately absent,
-and not to be assumed: `Document`; `Resource`, `ResourceAccessScope`; `Chunk`,
-`ChunkType`, `Embedding`; `ChatSession`, `ChatSessionMessage`, `Citation`. Also
-absent: authentication endpoints, JWT, password hashing, login, CRUD APIs, team
-services, source connection endpoints, the ingestion orchestrator, credential
-encryption, authorisation policies, repositories and migrations. The service-layer
-work these entities specifically wait on is in [todo.md](todo.md).
+These are the first four entity groups of a larger model. Deliberately absent,
+and not to be assumed: `Document`; `ChatSession`, `ChatSessionMessage`,
+`Citation`. Also absent: authentication endpoints, JWT, password hashing, login,
+CRUD APIs, team services, source connection endpoints, the ingestion
+orchestrator, credential encryption, authorisation policies, repositories and
+migrations. The service-layer work these entities specifically wait on is in
+[todo.md](todo.md).
+
+The knowledge group in particular is columns and nothing else. There is no
+embedding generation and no client for any embedding API; no vector index and no
+similarity search; no authorisation function that reads `access_scope`; no
+row-level security; no resource or chunk CRUD; and nothing that turns a
+`CodeChunk` or a `JiraChunk` into a `Chunk` row. `resources` and `chunks` are the
+shape those things will need, written down before they are built.
 
 The ingestion pipelines do not use any of this. `CodeChunk`, `JiraChunk`,
 `ConfluenceChunk` and `SlackChunk` remain pydantic models that no table stores —
-see [architecture.md](architecture.md).
+see [architecture.md](architecture.md). `chunks` is the table they are eventually
+headed for, and the two are not yet connected by a single line of code: a DTO
+crosses a request boundary and is discarded, a `Chunk` is a row. Mapping one to
+the other is the ingestion orchestrator's job, and it does not exist.
 
 ## Checking the schema
 
@@ -774,17 +1187,26 @@ engine = create_mock_engine("postgresql://", dump)
 Base.metadata.create_all(engine, checkfirst=False)
 ```
 
-That prints the six `CREATE TYPE`s, the eight `CREATE TABLE` statements and the
-fourteen indexes, without connecting to anything. Swapping in
-`create_engine("sqlite://")` and a real `create_all` is a working smoke test —
-on SQLite the native enum degrades to `VARCHAR` with a `CHECK`, which is
-expected, and the unique constraints still reject a second team for a user who
-already has one, or a duplicate team name within a department.
+That prints the nine `CREATE TYPE`s, the ten `CREATE TABLE` statements and the
+twenty-four indexes, without connecting to anything. Note that
+`resource_access_scope` is emitted once even though two tables use it — one enum
+name is one PostgreSQL type. Swapping in `create_engine("sqlite://")` and a real
+`create_all` is a working smoke test — on SQLite the native enum degrades to
+`VARCHAR` with a `CHECK`, which is expected, and the unique constraints still
+reject a second team for a user who already has one, a duplicate team name within
+a department, or a second chunk at index 0 of the same resource.
 
 That SQLite pass is also what the JSON columns are shaped for. `config`,
-`credential_metadata` and `run_metadata` are declared as
-`JSON().with_variant(JSONB, "postgresql")` rather than as `JSONB` outright: the
-PostgreSQL DDL above still reads `JSONB`, with everything `JSONB` gives — the
-binary representation, the containment operators, the ability to index inside a
-document — while the same metadata still builds on SQLite for a test. It is the
-same trade `UUIDMixin` makes with `Uuid` over `postgresql.UUID`, one type down.
+`credential_metadata`, `run_metadata`, `resource_metadata` and `chunk_metadata`
+are declared as `JSON().with_variant(JSONB, "postgresql")` rather than as `JSONB`
+outright: the PostgreSQL DDL above still reads `JSONB`, with everything `JSONB`
+gives — the binary representation, the containment operators, the ability to index
+inside a document — while the same metadata still builds on SQLite for a test. It
+is the same trade `UUIDMixin` makes with `Uuid` over `postgresql.UUID`, one type
+down.
+
+`chunks.embedding` is the same mechanism pointed at a type from outside
+SQLAlchemy: `JSON().with_variant(Vector(1536), "postgresql")` prints
+`VECTOR(1536)` in the dump above and a JSON column on SQLite, so a test can insert
+`[0.1, 0.2, 0.3]` and read it back without a PostgreSQL server or the `vector`
+extension anywhere near it.

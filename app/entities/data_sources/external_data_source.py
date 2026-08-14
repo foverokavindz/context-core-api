@@ -14,6 +14,7 @@ from app.entities.data_sources.source_type import SourceType
 if TYPE_CHECKING:
     from app.entities.data_sources.source_credentials import SourceCredentials
     from app.entities.data_sources.sync_run import SyncRun
+    from app.entities.knowledge_sources.resource import Resource
     from app.entities.organization.user import User
     from app.entities.teams.team import Team
 
@@ -83,3 +84,4 @@ class ExternalDataSource(UUIDMixin, TimestampMixin, Base):
     credential: Mapped["SourceCredentials | None"] = relationship(back_populates="external_data_sources")
     creator: Mapped["User"] = relationship(back_populates="created_external_data_sources") # who connected the source, not who may read it
     sync_runs: Mapped[list["SyncRun"]] = relationship(back_populates="external_data_source")
+    resources: Mapped[list["Resource"]] = relationship(back_populates="external_data_source") # what this source has produced, which a SyncRun counts but does not hold

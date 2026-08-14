@@ -103,6 +103,60 @@ it. A single failed run should not do it — a network blip is not a broken
 connection — so the rule is a threshold, or an authentication failure
 specifically, and it has to be written down before it is written in code.
 
+## Knowledge sources
+
+**A resource's `access_scope` is not checked against `team_id` and
+`department_id`.** `TEAM` with a `NULL` `team_id`, or `ORGANIZATION` with a team
+set, are valid rows today. A `CHECK` constraint could express the pairing, and the
+reason there is not one is that the rule belongs beside the authorisation code
+that reads these columns — writing the constraint first would mean guessing what
+that code needs. Whoever writes the first permission check writes this too.
+
+**Chunk permission columns can drift from their resource's.**
+`chunks.access_scope`, `chunks.team_id` and `chunks.department_id` are
+denormalized copies and nothing keeps them in step — not an ORM event, not a
+trigger. The ingestion service creates chunks from the resource's permission
+context, in one place; a resource whose scope is later *changed* also has to
+rewrite its chunks, and that is the case most likely to be forgotten. See
+[entities.md](entities.md#why-the-permission-columns-are-here-twice).
+
+**`document_id` points at nothing.** It is a bare `UUID` column with no
+`REFERENCES`, because the `documents` table does not exist. Adding the `Document`
+entity means adding the foreign key in the same migration — and until then a
+resource may carry a `document_id` for a document that was never written.
+
+**Nothing requires a resource to have exactly one origin.** A row with both
+`external_data_source_id` and `document_id` set, or with neither, is accepted. The
+intended rule is one or the other, which is a `CHECK` once `documents` exists and
+a service check before then.
+
+**`content_hash` and `embedding` are written by nobody.** The entity does no
+hashing and calls no embedding API. The ingestion service hashes `content`,
+compares against the stored `content_hash`, and only then spends an embedding
+call — the whole reason the column is there. `embedding_model` has to be written
+in the same statement as `embedding`, or the record of which model produced a
+vector is lost.
+
+**`chunk_index` is not checked for gaps.** The unique constraint stops a resource
+holding index 0 twice; nothing requires its chunks to run 0, 1, 2 with nothing
+missing. A partial re-ingestion that writes some chunks and fails can leave a
+hole, and reassembling a resource in order has to tolerate that or the service
+has to prevent it.
+
+**Re-ingestion strategy is undecided.** `version_key` and `external_id` exist so a
+second run can recognise an item it already stored, and nothing yet decides
+whether an unchanged `version_key` skips the resource entirely, or whether a
+changed one replaces its chunks, renumbers them, or writes a new resource
+version. `SyncRun.chunks_updated` and `chunks_deleted` are counters waiting on
+that decision.
+
+**The `vector` extension and its index.** `chunks.embedding` compiles to
+`vector(1536)` but a real PostgreSQL server needs `CREATE EXTENSION vector` before
+that table can be created, and an `ivfflat` or `hnsw` index before a similarity
+search is anything but a sequential scan. Both belong to the first migration and
+the first real corpus respectively — the dimension is pinned, the index is not,
+because it has to be tuned against data that does not exist yet.
+
 ## Organization
 
 Carried over from the first two entity groups, and unchanged:

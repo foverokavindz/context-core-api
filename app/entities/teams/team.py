@@ -9,6 +9,8 @@ from app.entities.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.entities.data_sources.external_data_source import ExternalDataSource
     from app.entities.data_sources.source_credentials import SourceCredentials
+    from app.entities.knowledge_sources.chunk import Chunk
+    from app.entities.knowledge_sources.resource import Resource
     from app.entities.organization.department import Department
     from app.entities.organization.user import User
     from app.entities.teams.team_member import TeamMember
@@ -43,3 +45,6 @@ class Team(UUIDMixin, TimestampMixin, Base):
 
     source_credentials: Mapped[list["SourceCredentials"]] = relationship(back_populates="team") # credentials are owned by the team, not held on it - a team may have one per provider
     external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="team")
+
+    resources: Mapped[list["Resource"]] = relationship(back_populates="team") # knowledge scoped to this team, which is not everything its sources produced - a resource may be scoped wider
+    chunks: Mapped[list["Chunk"]] = relationship(back_populates="team") # the denormalized half of the same fact, and not a collection anything should iterate - it exists so the foreign key has a name on both sides

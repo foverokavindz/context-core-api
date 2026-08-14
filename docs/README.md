@@ -37,5 +37,5 @@ checklist for verifying it against a real account.
 
 | Page | What's in it |
 | --- | --- |
-| [entities.md](entities.md) | The database layer: departments, job titles, users, teams, connected data sources, and what is deliberately not there yet |
+| [entities.md](entities.md) | The database layer: departments, job titles, users, teams, connected data sources, the resources and chunks they produce, and what is deliberately not there yet |
 | [todo.md](todo.md) | The rules those tables leave to a service layer that does not exist yet |
