@@ -81,7 +81,7 @@ def _to_response(result: IngestionResult, *, full: bool = False) -> IngestRespon
             FileSummary(path=file.path, language=file.language, size=file.size)
             for file in result.files[:file_limit]
         ],
-        sample_chunks=[
+        chunks=[
             ChunkSample(
                 file_path=chunk.file_path,
                 symbol_type=chunk.symbol_type,

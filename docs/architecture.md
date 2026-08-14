@@ -62,9 +62,18 @@ app/
 │   ├── slack_message.py          SlackMessage  <- the Slack boundary
 │   ├── slack_chunk.py            SlackChunk
 │   └── slack_response.py         Slack response DTOs + limits
+├── entities/                     the database layer — see entities.md
+│   ├── base.py                   Base, UUIDMixin, TimestampMixin
+│   └── organization/             departments, job titles, users
 ├── core/exceptions.py            error types and their HTTP statuses
 └── tests/
 ```
+
+`models/` and `entities/` are not two names for the same thing. Everything in
+`models/` is a pydantic DTO that lives for the length of one request; everything
+in `entities/` is a table. No pipeline imports `entities/`, and nothing in it is
+wired into `main.py` — it is the first stone of the application that will be
+built on top of ingestion, not part of ingestion itself.
 
 ## The boundaries that matter
 

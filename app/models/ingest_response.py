@@ -78,5 +78,5 @@ class IngestResponse(BaseModel):
     truncated: bool = False
 
     files: list[FileSummary] = []
-    sample_chunks: list[ChunkSample] = []
+    chunks: list[ChunkSample] = []
     errors: list[FileError] = []

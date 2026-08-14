@@ -17,6 +17,10 @@ requires-python = ">=3.11"
 # beautifulsoup4 runs on Python's built-in html.parser; lxml is deliberately not
 # a dependency, since storage format is small and well-formed enough not to need
 # it.
+#
+# SQLAlchemy is the ORM behind app/entities. No database driver is listed with
+# it yet: nothing in this version opens a connection, so the entities exist as
+# metadata only. psycopg (or asyncpg) joins this list when the engine does.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -26,6 +30,7 @@ dependencies = [
     "beautifulsoup4",
     "tree-sitter",
     "tree-sitter-typescript",
+    "sqlalchemy>=2.0",
 ]
 
 # Test-only tools. Installed with: pip install -e ".[dev]"
@@ -46,6 +51,8 @@ packages = [
     "app.api",
     "app.connectors",
     "app.core",
+    "app.entities",
+    "app.entities.organization",
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",

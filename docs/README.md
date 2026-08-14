@@ -32,3 +32,9 @@ checklist for verifying it against a real account.
 | [logging.md](logging.md) | What a run prints, and why log volume tracks the unit that costs a round trip |
 | [security.md](security.md) | How tokens are held, and what never reaches a log or a response |
 | [testing.md](testing.md) | The 1,079-test suite and what each module covers |
+
+## Beyond ingestion
+
+| Page | What's in it |
+| --- | --- |
+| [entities.md](entities.md) | The database layer: departments, job titles, users, and what is deliberately not there yet |
