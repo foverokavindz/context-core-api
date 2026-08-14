@@ -52,6 +52,7 @@ packages = [
     "app.connectors",
     "app.core",
     "app.entities",
+    "app.entities.data_sources",
     "app.entities.organization",
     "app.entities.teams",
     "app.ingestion",

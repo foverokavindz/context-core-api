@@ -7,6 +7,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.entities.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.entities.data_sources.external_data_source import ExternalDataSource
+    from app.entities.data_sources.source_credentials import SourceCredentials
     from app.entities.organization.department import Department
     from app.entities.organization.user import User
     from app.entities.teams.team_member import TeamMember
@@ -38,3 +40,6 @@ class Team(UUIDMixin, TimestampMixin, Base):
     department: Mapped["Department"] = relationship(back_populates="teams")
     creator: Mapped["User"] = relationship(back_populates="created_teams") # who created the team, not who belongs to it
     team_members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
+
+    source_credentials: Mapped[list["SourceCredentials"]] = relationship(back_populates="team") # credentials are owned by the team, not held on it - a team may have one per provider
+    external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="team")

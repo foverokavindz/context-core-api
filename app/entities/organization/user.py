@@ -9,6 +9,7 @@ from app.entities.base import Base, TimestampMixin, UUIDMixin
 from app.entities.organization.application_role import ApplicationRole
 
 if TYPE_CHECKING:
+    from app.entities.data_sources.external_data_source import ExternalDataSource
     from app.entities.organization.department import Department
     from app.entities.organization.job_title import JobTitle
     from app.entities.teams.team import Team
@@ -65,3 +66,5 @@ class User(UUIDMixin, TimestampMixin, Base):
 
     created_teams: Mapped[list["Team"]] = relationship(back_populates="creator") # teams this user created, which is not the same as the team they are in
     team_membership: Mapped["TeamMember | None"] = relationship(back_populates="user") # the one team this user belongs to, if any - team_members.user_id is unique
+
+    created_external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="creator") # sources this user connected, which says nothing about who may read them
