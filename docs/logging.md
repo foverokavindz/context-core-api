@@ -90,6 +90,10 @@ INFO  Parsed 124 Jira issues
 INFO  Linked 112 issues to 12 epics
 INFO  Generated 124 Jira chunks
 INFO  Ingested 124 Jira issues (12 epics, 112 stories, 112 linked to an epic) into 124 chunks in 2.4s
+INFO  Embedding 124 chunks in 5 request(s) of at most 30
+INFO  [1/5] embedding 30 chunks (18422 characters)
+...
+INFO  Embedded 124 chunks into 1536-dimension vectors with text-embedding-3-small (5 embedding API calls) in 3.1s
 ```
 
 **Log volume tracks pages, not issues.** A hundred issues arrive in one API
@@ -114,6 +118,10 @@ INFO  Retrieved 124 Confluence pages from 2 batch(es) (3 Confluence API calls)
 INFO  Parsed 124 Confluence pages
 INFO  Generated 124 Confluence chunks
 INFO  Ingested Confluence space TR (124 pages retrieved, 124 parsed) into 124 chunks in 2.1s
+INFO  Embedding 124 chunks in 5 request(s) of at most 30
+INFO  [1/5] embedding 30 chunks (98455 characters)
+...
+INFO  Embedded 124 chunks into 1536-dimension vectors with text-embedding-3-small (5 embedding API calls) in 4.6s
 ```
 
 **Log volume tracks batches, not pages, and page bodies are never logged at
@@ -135,14 +143,58 @@ INFO  Retrieved 235 Slack history items from 2 page(s) (2 Slack API calls)
 INFO  Parsed 128 Slack messages
 INFO  Generated 128 Slack chunks
 INFO  Ingested Slack channel C0123456789 (235 history items retrieved, 128 parsed) into 128 chunks in 1.4s
+INFO  Embedding 128 chunks in 5 request(s) of at most 30
+INFO  [1/5] embedding 30 chunks (2841 characters)
+...
+INFO  Embedded 128 chunks into 1536-dimension vectors with text-embedding-3-small (5 embedding API calls) in 2.2s
 ```
 
-The two counts in that last line are both worth reading. 235 is what Slack
-served; 128 is what survived the filter. **A large gap there is the pipeline
-working**, not a problem — it is the joins, leaves and thread replies going
-where they belong.
+The two counts in the `Ingested Slack channel` line are both worth reading. 235
+is what Slack served; 128 is what survived the filter. **A large gap there is the
+pipeline working**, not a problem — it is the joins, leaves and thread replies
+going where they belong.
 
 **Message text is never logged at any level, not even DEBUG**, where only
 timestamps appear. This is the same rule Confluence applies to page bodies and it
 matters more here: a wiki page is documentation somebody chose to write down,
 while a channel is a conversation nobody expected to be quoted from.
+
+## Embedding
+
+The last two or three lines of all four runs above come from the same place:
+`app.ingestion.embedding_service`, which every pipeline calls after its chunker.
+So the rules described under GitHub apply identically to Jira, Confluence and
+Slack — one line per request rather than per chunk, logged before the request is
+made, and never any chunk text at any level.
+
+What differs between the four is only the size of the batches, and the character
+counts in those lines are the quickest way to see it. A Confluence batch of 30
+wiki pages is the largest single request this application sends; a Slack batch of
+30 one-line messages is the smallest by an order of magnitude. Both cost exactly
+one round trip, which is why the count that matters is requests rather than
+chunks.
+
+That size difference has one consequence worth watching for, and it has only
+ever been seen on Confluence:
+
+```
+INFO  2 chunk(s) exceeded 24000 characters and were truncated for embedding; their stored content is unchanged
+```
+
+A page past `MAX_EMBEDDING_INPUT_CHARS` is embedded on its opening section, so
+its vector represents the beginning and not the end — the chunk stays findable by
+what it starts with. The stored `content` is untouched, and the count is
+reported to the caller as `counts.truncated_inputs` as well as logged, because
+this is quiet data loss rather than a failure and nothing else would surface it.
+A real 11-page space has hit this: two pages of 36k and 32k characters, roughly a
+fifth of that corpus not reaching the model. The fix is splitting long pages into
+several chunks, which `confluence_chunk.py` already describes as the next step
+after the one-chunk-per-page baseline.
+
+When a run reports no vectors, one of three lines says why:
+
+```
+INFO  Embedding skipped at the caller's request        the request set "embed": false
+INFO  No embedder is configured; chunks have no vectors  a service built without one
+                                                       (nothing at all)  the run produced no chunks
+```

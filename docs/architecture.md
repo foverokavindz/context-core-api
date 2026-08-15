@@ -29,6 +29,7 @@ app/
 │   ├── confluence_connector.py   Confluence's endpoints, auth and pagination
 │   └── slack_connector.py        conversations.history, bearer auth, cursors
 ├── ingestion/
+│   ├── embedding_service.py      the only module that imports openai
 │   ├── ingestion_service.py      GitHub orchestration
 │   ├── file_filter.py            which paths are worth ingesting
 │   ├── parser/
@@ -104,6 +105,34 @@ description is plain text — no ADF survives that boundary — by the time a pa
 a `ConfluencePage` its body is plain text, with no `<p>`, no `<h2>` and no
 `ac:structured-macro` past it, and by the time a message is a `SlackMessage` its
 `subtype`, `thread_ts`, `bot_id`, `blocks` and `reactions` are all gone.
+
+## The one thing the four pipelines share
+
+`embedding_service.py` is the exception to the separation above, and it earned
+the exception rather than being granted it. Four sources produced four chunk
+models, and by the time all four existed the thing they had in common was
+visible instead of guessed at: a chunk has `content`, and after embedding it has
+a vector. That is the whole overlap, and it is written down as a `Protocol`
+rather than a base class:
+
+```python
+class EmbeddableChunk(Protocol):
+    content: str
+    embedding: list[float] | None
+    embedding_model: str | None
+```
+
+`CodeChunk`, `JiraChunk`, `ConfluenceChunk` and `SlackChunk` satisfy it without
+inheriting anything, so the four models stay independent and the embedder stays
+ignorant of which source it is holding. `embed_into(result, embedder)` is the
+stage itself — every service calls it in one line after its chunker, and there is
+nowhere for the four to drift apart.
+
+Note what is *not* shared. There is still no `SourceDocument`, no shared
+connector base beyond `BaseSourceConnector`, and no common request or response
+model apart from `EmbeddingCounts`. Embedding was factored out because it is
+identical; the rest is not, and seeing it four times is still the cheaper
+mistake.
 
 No pipeline imports another. None of `JiraConnector`, `ConfluenceConnector` or
 `SlackConnector` implements `BaseSourceConnector`: that contract is
