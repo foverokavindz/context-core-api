@@ -14,6 +14,8 @@ from app.ingestion.confluence_ingestion_service import (
     ConfluenceIngestionResult,
     ConfluenceIngestionService,
 )
+from app.ingestion.embedding_service import ChunkEmbedder
+from app.models.confluence_chunk import ConfluenceChunk
 from app.models.confluence_request import ConfluenceIngestRequest
 from app.models.confluence_response import (
     CHUNK_CONTENT_PREVIEW_CHARS,
@@ -23,12 +25,17 @@ from app.models.confluence_response import (
     ConfluenceIngestResponse,
     ConfluencePageError,
 )
+from app.models.embedding_counts import EmbeddingCounts
+from app.models.ingest_response import EMBEDDING_PREVIEW_VALUES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/confluence", tags=["confluence"])
 
-_service = ConfluenceIngestionService()
+# The embedder reads no environment variable and opens no connection until the
+# first batch is sent, so building one here costs nothing and importing this
+# module on a machine with no credentials still works.
+_service = ConfluenceIngestionService(embedder=ChunkEmbedder())
 
 
 def get_confluence_ingestion_service() -> ConfluenceIngestionService:
@@ -65,18 +72,25 @@ def ingest_space(
         api_token=request.api_token,
         space_key=request.space_key,
         max_pages=request.max_pages,
+        embed=request.embed,
     )
-    return _to_response(result, full=request.full)
+    return _to_response(
+        result, full=request.full, include_embeddings=request.include_embeddings
+    )
 
 
 def _to_response(
-    result: ConfluenceIngestionResult, *, full: bool = False
+    result: ConfluenceIngestionResult,
+    *,
+    full: bool = False,
+    include_embeddings: bool = False,
 ) -> ConfluenceIngestResponse:
     """Project the internal result onto the HTTP response.
 
     The pipeline always processes the whole space; `full` only decides how much
-    of that result is serialised. It never affects `truncated`, which reports
-    whether the *ingestion* saw everything.
+    of that result is serialised, and `include_embeddings` whether a chunk's
+    vector is shown whole or as its first few values. Neither affects
+    `truncated`, which reports whether the *ingestion* saw everything.
     """
     page_limit = None if full else SAMPLE_PAGES_LIMIT
     chunk_limit = None if full else SAMPLE_CHUNKS_LIMIT
@@ -90,22 +104,48 @@ def _to_response(
         parsed_pages=result.parsed_pages,
         generated_chunks=result.generated_chunks,
         truncated=result.truncated,
+        counts=EmbeddingCounts(
+            chunks=result.generated_chunks,
+            embeddings=result.embedded_chunks,
+            embedding_batches=result.embedding_batches,
+            embedding_model=result.embedding_model,
+            embedding_dimensions=result.embedding_dimensions,
+            truncated_inputs=result.embedding_truncated_inputs,
+        ),
         pages=result.pages[:page_limit],
         sample_chunks=[
-            ConfluenceChunkSample(
-                page_id=chunk.page_id,
-                space_key=chunk.space_key,
-                title=chunk.title,
-                parent_id=chunk.parent_id,
-                status=chunk.status,
-                content=chunk.content if full else _preview(chunk.content),
-            )
+            _to_sample(chunk, full=full, include_embeddings=include_embeddings)
             for chunk in result.chunks[:chunk_limit]
         ],
         errors=[
             ConfluencePageError(page=page, reason=reason)
             for page, reason in result.errors
         ],
+    )
+
+
+def _to_sample(
+    chunk: ConfluenceChunk, *, full: bool, include_embeddings: bool
+) -> ConfluenceChunkSample:
+    """Project one chunk, shortening its text and its vector for display."""
+    return ConfluenceChunkSample(
+        page_id=chunk.page_id,
+        space_key=chunk.space_key,
+        title=chunk.title,
+        parent_id=chunk.parent_id,
+        status=chunk.status,
+        content=chunk.content if full else _preview(chunk.content),
+        embedding=chunk.embedding if include_embeddings else None,
+        embedding_preview=(
+            None
+            if chunk.embedding is None or include_embeddings
+            else chunk.embedding[:EMBEDDING_PREVIEW_VALUES]
+        ),
+        # Taken from the vector in hand rather than from the run's summary, so a
+        # chunk that somehow missed the embedding pass reads as null here
+        # instead of borrowing the width of the ones that did not.
+        embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
+        embedding_model=chunk.embedding_model,
     )
 
 

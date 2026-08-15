@@ -1,10 +1,10 @@
 """ConfluenceChunk - one wiki page rendered as embeddable text.
 
 This is the output of the Confluence pipeline and its handover point, exactly as
-JiraChunk is for Jira and CodeChunk is for GitHub. A later phase can attach
-embeddings to a list of ConfluenceChunks and store them without changing
-anything upstream, which is why this model carries no embedding vector, no
-database id, and no storage-specific field.
+JiraChunk is for Jira and CodeChunk is for GitHub. The chunker produces one of
+these per page; the embedding service then fills in `embedding` and
+`embedding_model` on the very same objects, in place. It still carries no
+database id and no storage-specific field.
 
 For this first version the mapping is one chunk per page - no splitting by
 headings, tokens, characters, paragraphs or sections. That gives a baseline to
@@ -41,3 +41,11 @@ class ConfluenceChunk(BaseModel):
     # they are provenance for a retrieval layer to filter on, not meaning for a
     # model to embed.
     content: str
+
+    # Filled by the embedding service after chunking, on this same object, and
+    # only once every batch of a run has come back intact - so these are either
+    # both set or both None, never one without the other. A page longer than
+    # MAX_EMBEDDING_INPUT_CHARS is embedded on its opening section; `content`
+    # itself is never shortened.
+    embedding: list[float] | None = None
+    embedding_model: str | None = None

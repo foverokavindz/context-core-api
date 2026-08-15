@@ -25,6 +25,7 @@ from pydantic import SecretStr
 from app.connectors.confluence_connector import ConfluenceConnector
 from app.ingestion.confluence_chunker import ConfluenceChunker
 from app.ingestion.confluence_parser import ConfluenceParser
+from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.models.confluence_chunk import ConfluenceChunk
 from app.models.confluence_page import ConfluencePage
 from app.models.confluence_response import MAX_PAGES_PER_INGESTION
@@ -65,6 +66,15 @@ class ConfluenceIngestionResult:
     # (page id or space key, reason) for anything skipped or noted. Never fatal.
     errors: list[tuple[str, str]] = field(default_factory=list)
 
+    # What the embedding step did, or zeroes when it was skipped. The vectors
+    # themselves live on the chunks above - there is one list of chunks in a run
+    # and it is the one the chunker produced.
+    embedded_chunks: int = 0
+    embedding_batches: int = 0
+    embedding_model: str | None = None
+    embedding_dimensions: int | None = None
+    embedding_truncated_inputs: int = 0
+
     @property
     def parsed_pages(self) -> int:
         return len(self.pages)
@@ -84,11 +94,17 @@ class ConfluenceIngestionService:
         chunker: ConfluenceChunker | None = None,
         connector_factory: ConfluenceConnectorFactory = ConfluenceConnector,
         max_pages: int = MAX_PAGES_PER_INGESTION,
+        embedder: ChunkEmbedder | None = None,
     ) -> None:
         self.parser = parser or ConfluenceParser()
         self.chunker = chunker or ConfluenceChunker()
         self.connector_factory = connector_factory
         self.max_pages = max_pages
+        # No default embedder on purpose. A service built without one parses and
+        # chunks and stops there, which is what a test wants; the API wires a
+        # real one in. An embedder constructed by mistake would be the kind of
+        # default that quietly bills somebody.
+        self.embedder = embedder
 
     def ingest(
         self,
@@ -97,14 +113,19 @@ class ConfluenceIngestionService:
         api_token: SecretStr,
         space_key: str,
         max_pages: int | None = None,
+        embed: bool = True,
     ) -> ConfluenceIngestionResult:
         """Ingest one Confluence space and return everything that was produced.
 
-        `max_pages` overrides the service default for this run only.
+        `max_pages` overrides the service default for this run only. `embed`
+        turns the embedding step off for a run that only wants chunks; it does
+        nothing when the service was built without an embedder.
 
         Raises IngestionError subclasses for whole-run failures - bad
-        credentials, an invisible space, a rate limit. Problems with individual
-        pages are collected into `errors` and do not stop the run.
+        credentials, an invisible space, a rate limit, and a failed embedding
+        pass. Problems with individual pages are collected into `errors` and do
+        not stop the run: one unparseable page is not worth losing 200 good ones
+        over, while half a set of vectors is worth nothing at all.
         """
         logger.info(
             "Ingesting Confluence space %s from %s", space_key, site_url
@@ -150,4 +171,9 @@ class ConfluenceIngestionService:
             result.generated_chunks,
             time.monotonic() - started,
         )
+
+        # The shared stage: identical for all four sources, so it lives beside
+        # the embedder rather than being written out four times.
+        embed_into(result, self.embedder, embed=embed)
+
         return result

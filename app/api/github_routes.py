@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService, IngestionResult
 from app.models.code_chunk import CodeChunk
+from app.models.embedding_counts import EmbeddingCounts
 from app.models.github_request import GitHubIngestRequest
 from app.models.ingest_response import (
     CHUNK_CONTENT_PREVIEW_CHARS,
@@ -21,7 +22,6 @@ from app.models.ingest_response import (
     ChunkSample,
     FileError,
     FileSummary,
-    IngestionCounts,
     IngestResponse,
 )
 
@@ -94,13 +94,13 @@ def _to_response(
         parsed_files=result.parsed_files,
         generated_chunks=result.generated_chunks,
         truncated=result.truncated,
-        counts=IngestionCounts(
-            files=result.accepted_files,
+        counts=EmbeddingCounts(
             chunks=result.generated_chunks,
             embeddings=result.embedded_chunks,
             embedding_batches=result.embedding_batches,
             embedding_model=result.embedding_model,
             embedding_dimensions=result.embedding_dimensions,
+            truncated_inputs=result.embedding_truncated_inputs,
         ),
         files=[
             FileSummary(path=file.path, language=file.language, size=file.size)
