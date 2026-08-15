@@ -6,10 +6,10 @@ into these messages; it is logged server-side instead. That keeps two things out
 of responses: internal detail, and any chance of echoing back credentials.
 
 The GitHub errors come first, then the Jira ones, then the Confluence ones, then
-the Slack ones. They are kept as separate classes rather than shared because the
-wording a client sees should name the system that actually failed, and because
-the vendors do not agree on what a given status means - GitHub's 403 is
-ambiguous, Jira's is not.
+the Slack ones, and the embedding ones last. They are kept as separate classes
+rather than shared because the wording a client sees should name the system that
+actually failed, and because the vendors do not agree on what a given status
+means - GitHub's 403 is ambiguous, Jira's is not.
 
 Jira and Confluence are both Atlassian, and their statuses do line up. They still
 get their own classes: a run ingests one or the other, never both, so a message
@@ -309,3 +309,38 @@ class SlackApiError(IngestionError):
 
     status_code = 502
     default_message = "The Slack API could not be reached or returned an error."
+
+
+class EmbeddingConfigurationError(IngestionError):
+    """The embedding endpoint is not configured on this deployment.
+
+    A 500 rather than a 4xx: the caller asked for something reasonable and the
+    server cannot honour it. The message names the missing variable but never
+    its value - an API key must not reach a response, a log line or a traceback.
+    """
+
+    status_code = 500
+    default_message = (
+        "The embedding service is not configured on this server. Set "
+        "AZURE_OPENAI_BASE_URL, AZURE_OPENAI_API_KEY and AZURE_OPENAI_DEPLOYMENT."
+    )
+
+
+class EmbeddingError(IngestionError):
+    """The embedding API failed, or answered with something we cannot trust.
+
+    Two quite different causes share this class, and both are fatal to a run.
+    The first is an ordinary API failure - unreachable, throttled past the
+    retries, or a rejected request. The second is a *mismatch*: a batch of 30
+    inputs coming back with 29 vectors, or a vector of the wrong width. That
+    second case is the important one. Nothing downstream can tell which chunk
+    lost its vector, so guessing an alignment would silently attach the wrong
+    embedding to the wrong code - which is worse than failing the run, because
+    it fails at retrieval time instead, months later and invisibly.
+    """
+
+    status_code = 502
+    default_message = (
+        "The embedding service could not be reached or returned an "
+        "unusable response."
+    )

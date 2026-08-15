@@ -1,12 +1,13 @@
-"""Orchestrates one ingestion run: GitHub -> files -> filter -> parse -> chunks.
+"""Orchestrates one run: GitHub -> files -> filter -> parse -> chunks -> vectors.
 
-This is where the pipeline is assembled. It owns the FileFilter and the parser
-registry and hands them to the connector; the connector knows how to talk to
-GitHub but not what we consider worth ingesting, and the parsers know how to
-read TypeScript but not where it came from.
+This is where the pipeline is assembled. It owns the FileFilter, the parser
+registry and the embedder, and hands the first two to the connector; the
+connector knows how to talk to GitHub but not what we consider worth ingesting,
+the parsers know how to read TypeScript but not where it came from, and the
+embedder knows how to turn text into vectors but nothing about either.
 
 The API route calls exactly one method here. Nothing in this module imports
-FastAPI, and nothing in it imports PyGithub.
+FastAPI, nothing in it imports PyGithub, and nothing in it imports openai.
 """
 
 import logging
@@ -18,6 +19,7 @@ from pydantic import SecretStr
 
 from app.connectors.base import BaseSourceConnector
 from app.connectors.github_connector import GitHubConnector
+from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.file_filter import FileFilter
 from app.ingestion.parser.base import ParserRegistry
 from app.ingestion.parser.typescript_parser import TypeScriptTreeSitterParser
@@ -37,8 +39,8 @@ class IngestionResult:
     """The complete outcome of one run.
 
     Holds *every* file and *every* chunk. The HTTP layer serialises only a
-    sample of this, but the full set is what a later phase would hand to an
-    embedding step - which is the whole point of keeping it intact here.
+    sample of this by default, but the full set is what the embedding step is
+    handed - which is the whole point of keeping it intact here.
     """
 
     repository: str
@@ -55,6 +57,14 @@ class IngestionResult:
 
     # (path, reason) for anything skipped or degraded. Never fatal.
     errors: list[tuple[str, str]] = field(default_factory=list)
+
+    # What the embedding step did, or zeroes when it was skipped. The vectors
+    # themselves live on the chunks above, not here - there is one list of
+    # chunks in a run and it is the one the parser produced.
+    embedded_chunks: int = 0
+    embedding_batches: int = 0
+    embedding_model: str | None = None
+    embedding_dimensions: int | None = None
 
     @property
     def generated_chunks(self) -> int:
@@ -76,11 +86,17 @@ class GitHubIngestionService:
         registry: ParserRegistry | None = None,
         connector_factory: ConnectorFactory = GitHubConnector,
         max_files: int = MAX_FILES_PER_INGESTION,
+        embedder: ChunkEmbedder | None = None,
     ) -> None:
         self.file_filter = file_filter or FileFilter()
         self.registry = registry or _default_registry()
         self.connector_factory = connector_factory
         self.max_files = max_files
+        # No default embedder on purpose. A service built without one parses and
+        # chunks and stops there, which is what a test wants; the API wires a
+        # real one in. An embedder constructed by mistake would be the kind of
+        # default that quietly bills somebody.
+        self.embedder = embedder
 
     def ingest(
         self,
@@ -88,14 +104,19 @@ class GitHubIngestionService:
         repository: str,
         branch: str | None = None,
         max_files: int | None = None,
+        embed: bool = True,
     ) -> IngestionResult:
         """Ingest one repository branch and return everything that was produced.
 
-        `max_files` overrides the service default for this run only.
+        `max_files` overrides the service default for this run only. `embed`
+        turns the embedding step off for a run that only wants chunks; it does
+        nothing when the service was built without an embedder.
 
         Raises IngestionError subclasses for whole-run failures - bad
-        credentials, missing repository, rate limit. Problems with individual
-        files are collected into `errors` and do not stop the run.
+        credentials, missing repository, rate limit, and a failed embedding
+        pass. Problems with individual files are collected into `errors` and do
+        not stop the run: one unparseable file is not worth losing 400 good
+        ones over, while half a set of vectors is worth nothing at all.
         """
         logger.info(
             "Ingesting %s (branch: %s)", repository, branch or "repository default"
@@ -136,9 +157,49 @@ class GitHubIngestionService:
             result.parsed_files,
             time.monotonic() - started,
         )
+
+        self._embed(result, embed=embed)
+
         return result
 
     # --------------------------------------------------------------- internal
+
+    def _embed(self, result: IngestionResult, *, embed: bool) -> None:
+        """Attach vectors to the chunks this run produced.
+
+        Unlike parsing, this is all-or-nothing. A file that will not parse costs
+        that one file; a batch of embeddings that comes back wrong cannot be
+        localised to a file at all, so the run fails and the caller retries
+        rather than storing a corpus that is 90% searchable.
+        """
+        if self.embedder is None or not embed or not result.chunks:
+            if not embed:
+                logger.info("Embedding skipped at the caller's request")
+            elif self.embedder is None and result.chunks:
+                logger.info("No embedder is configured; chunks have no vectors")
+            return
+
+        started = time.monotonic()
+        run = self.embedder.embed_chunks(result.chunks)
+
+        result.embedded_chunks = run.embedded
+        result.embedding_batches = run.batches
+        result.embedding_model = run.model
+        result.embedding_dimensions = run.dimensions
+
+        # The closing line, shaped like the connector's "Downloaded 97 files,
+        # skipped 1 (102 GitHub API calls)". The request count is the number
+        # worth having when a later 429 needs explaining, and the model and
+        # width are what say *which* vectors this corpus now holds.
+        logger.info(
+            "Embedded %d chunks into %d-dimension vectors with %s "
+            "(%d embedding API calls) in %.1fs",
+            run.embedded,
+            run.dimensions,
+            run.model,
+            run.batches,
+            time.monotonic() - started,
+        )
 
     def _parse_file(
         self, file: RepositoryFile, errors: list[tuple[str, str]]

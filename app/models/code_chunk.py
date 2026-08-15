@@ -1,9 +1,13 @@
 """CodeChunk - one logical unit of source code extracted from a file.
 
 This is the output of the whole pipeline and the handover point to whatever gets
-built next. A later phase can attach embeddings to a list of CodeChunks and
-store them without changing anything upstream, which is why this model carries
-no embedding vector, no database id, and no storage-specific field.
+built next. The parser produces one of these per symbol; the embedding service
+then fills in `embedding` and `embedding_model` on the very same objects, in
+place, so nothing upstream has to hand back a second list.
+
+It still carries no database id and no storage-specific field. A chunk knows
+what it is and what it means; which row it became is the persistence layer's
+business, and that layer does not exist yet.
 """
 
 from pydantic import BaseModel
@@ -54,3 +58,11 @@ class CodeChunk(BaseModel):
     end_line: int
 
     content: str
+
+    # Filled by the embedding service after chunking, on this same object, and
+    # only once every batch of a run has come back intact - so these are either
+    # both set or both None, never one without the other. `embedding_model` is
+    # the deployment that produced the vector: without it, a later model change
+    # would leave no way to tell which vectors are stale.
+    embedding: list[float] | None = None
+    embedding_model: str | None = None

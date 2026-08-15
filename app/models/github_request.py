@@ -46,3 +46,15 @@ class GitHubIngestRequest(BaseModel):
         "call, so raising this makes the request slower.",
         examples=[500],
     )
+    embed: bool = Field(
+        default=True,
+        description="Embed the chunks this run produces. Turn it off to fetch, "
+        "parse and chunk without spending embedding quota - the response is the "
+        "same shape either way, with null vectors.",
+    )
+    include_embeddings: bool = Field(
+        default=False,
+        description="Return each chunk's complete vector instead of the first "
+        "few values. 1536 floats per chunk adds up fast - expect a response in "
+        "the tens of megabytes on a real repository.",
+    )

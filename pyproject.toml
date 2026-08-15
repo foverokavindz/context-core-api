@@ -27,6 +27,12 @@ requires-python = ">=3.11"
 # needs the type even though nothing yet writes a vector. It is a pure-python
 # package with no client library behind it; the CREATE EXTENSION that makes the
 # column work on a real server belongs to the first migration.
+#
+# openai is the embedding client, used against an Azure deployment through its
+# OpenAI-compatible /openai/v1 surface, and python-dotenv is what loads the
+# three variables it needs. Both are runtime dependencies rather than dev ones
+# for the same reason httpx is: app.main imports every router, so a missing one
+# would break the Jira, Confluence and Slack paths too.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -38,6 +44,8 @@ dependencies = [
     "tree-sitter-typescript",
     "sqlalchemy>=2.0",
     "pgvector",
+    "openai",
+    "python-dotenv",
 ]
 
 # Test-only tools. Installed with: pip install -e ".[dev]"
