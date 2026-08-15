@@ -9,7 +9,9 @@ from app.entities.base import Base, TimestampMixin, UUIDMixin
 from app.entities.organization.application_role import ApplicationRole
 
 if TYPE_CHECKING:
+    from app.entities.chat.chat_session import ChatSession
     from app.entities.data_sources.external_data_source import ExternalDataSource
+    from app.entities.documents.document import Document
     from app.entities.organization.department import Department
     from app.entities.organization.job_title import JobTitle
     from app.entities.teams.team import Team
@@ -68,3 +70,6 @@ class User(UUIDMixin, TimestampMixin, Base):
     team_membership: Mapped["TeamMember | None"] = relationship(back_populates="user") # the one team this user belongs to, if any - team_members.user_id is unique
 
     created_external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="creator") # sources this user connected, which says nothing about who may read them
+
+    documents: Mapped[list["Document"]] = relationship(back_populates="uploader") # files this user uploaded, normally HR. Uploading one does not decide who may read it - the resource it produces carries the scope
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user") # this person's conversations, which are theirs alone - a session has one user and is never shared

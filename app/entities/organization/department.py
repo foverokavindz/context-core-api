@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.entities.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.entities.knowledge_sources.chunk import Chunk
+    from app.entities.chunks.chunk import Chunk
     from app.entities.knowledge_sources.resource import Resource
     from app.entities.organization.job_title import JobTitle
     from app.entities.organization.user import User

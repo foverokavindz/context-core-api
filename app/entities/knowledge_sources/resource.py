@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import JSON, ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, String, UniqueConstraint, Uuid
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -11,8 +11,10 @@ from app.entities.knowledge_sources.resource_access_scope import ResourceAccessS
 from app.entities.knowledge_sources.resource_type import ResourceType
 
 if TYPE_CHECKING:
+    from app.entities.chat.citation import Citation
+    from app.entities.chunks.chunk import Chunk
     from app.entities.data_sources.external_data_source import ExternalDataSource
-    from app.entities.knowledge_sources.chunk import Chunk
+    from app.entities.documents.document import Document
     from app.entities.organization.department import Department
     from app.entities.teams.team import Team
 
@@ -29,9 +31,11 @@ class Resource(UUIDMixin, TimestampMixin, Base):
 
     document_id: Mapped[UUID | None] = mapped_column(
         Uuid,
+        ForeignKey("documents.id"),
         nullable=True,
+        unique=True,
         index=True,
-    ) # no ForeignKey yet - the documents table does not exist, and naming one would break create_all. The constraint arrives with the Document entity
+    ) # unique, so one uploaded file becomes one searchable item - a document that needs splitting produces chunks, not a second resource. NULLs stay distinct in SQL, so every source-origin row is unaffected
 
     resource_type: Mapped[ResourceType] = mapped_column(
         SAEnum(
@@ -82,12 +86,18 @@ class Resource(UUIDMixin, TimestampMixin, Base):
 
     __table_args__ = (
         UniqueConstraint("external_data_source_id", "external_id"),
-    ) # one row per item per source. external_id alone is not unique - TRACK-25 means something only inside its Jira project, and NULLs are distinct in SQL, so document-origin rows are unaffected
+        CheckConstraint(
+            "(external_data_source_id IS NULL) <> (document_id IS NULL)",
+            name="single_origin",
+        ),
+    ) # the first: one row per item per source. external_id alone is not unique - TRACK-25 means something only inside its Jira project, and NULLs are distinct in SQL, so document-origin rows are unaffected. The second: a resource was either fetched from a connected system or uploaded as a file, never both and never neither. Written as a comparison of two IS NULL tests rather than as num_nonnulls(), which is PostgreSQL's alone - this form compiles on SQLite too
 
     external_data_source: Mapped["ExternalDataSource | None"] = relationship(back_populates="resources")
+    document: Mapped["Document | None"] = relationship(back_populates="resource") # the other origin, and the check constraint above means exactly one of the two is ever set
     team: Mapped["Team | None"] = relationship(back_populates="resources")
     department: Mapped["Department | None"] = relationship(back_populates="resources")
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="resource",
         cascade="all, delete-orphan",
     ) # the one cascade in the schema: chunks are derived from their resource and re-ingestion replaces them wholesale. It is a session-level cascade, not ON DELETE CASCADE - see docs/entities.md
+    citations: Mapped[list["Citation"]] = relationship(back_populates="resource") # every answer that named this resource as a source. No cascade: deleting a resource that has been cited is refused, because the citation is a record of what an answer was built on and outlives the thing it points at being re-ingested

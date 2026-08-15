@@ -9,7 +9,7 @@ from app.entities.base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from app.entities.data_sources.external_data_source import ExternalDataSource
     from app.entities.data_sources.source_credentials import SourceCredentials
-    from app.entities.knowledge_sources.chunk import Chunk
+    from app.entities.chunks.chunk import Chunk
     from app.entities.knowledge_sources.resource import Resource
     from app.entities.organization.department import Department
     from app.entities.organization.user import User

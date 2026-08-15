@@ -10,11 +10,14 @@ handed to a chunker or serialised into a response, and then gone. Nothing in it
 is a table. `app/entities/` is the other thing — rows that outlive a request.
 The two live in separate packages so neither drifts into doing the other's job.
 
-This page covers four groups: **organization** — departments, job titles, and
+This page covers seven groups: **organization** — departments, job titles, and
 the people in them — **teams**, the working groups those people are actually in,
 **data_sources**, the external systems a team has connected and the record of
-each attempt to ingest from them, and **knowledge_sources**, what those systems
-produced: the searchable items and the chunks a later retrieval step ranks.
+each attempt to ingest from them, **documents**, the files uploaded straight into
+the application rather than fetched from anywhere, **knowledge_sources**, the
+searchable items both origins produce, **chunks**, the embeddable pieces those
+items are cut into and the unit a retrieval step ranks, and **chat**, the
+conversations held against all of it and the sources each answer rested on.
 
 ## What exists, and what does not
 
@@ -38,13 +41,27 @@ app/entities/
 │   ├── source_credentials.py     source_credentials
 │   ├── external_data_source.py   external_data_sources
 │   └── sync_run.py               sync_runs
-└── knowledge_sources/
-    ├── resource_type.py          ResourceType (an enum, not a table)
-    ├── resource_access_scope.py  ResourceAccessScope (an enum, not a table)
-    ├── chunk_type.py             ChunkType (an enum, not a table)
-    ├── resource.py               resources
-    └── chunk.py                  chunks
+├── documents/
+│   ├── document_status.py        DocumentStatus (an enum, not a table)
+│   └── document.py               documents
+├── knowledge_sources/
+│   ├── resource_type.py          ResourceType (an enum, not a table)
+│   ├── resource_access_scope.py  ResourceAccessScope (an enum, not a table)
+│   └── resource.py               resources
+├── chunks/
+│   ├── chunk_type.py             ChunkType (an enum, not a table)
+│   └── chunk.py                  chunks
+└── chat/
+    ├── message_role.py           MessageRole (an enum, not a table)
+    ├── chat_session.py           chat_sessions
+    ├── chat_session_message.py   chat_session_messages
+    └── citation.py               citations
 ```
+
+`chunks` has its own package rather than sitting beside `resources`, which is
+where it started. A chunk is the retrieval unit and the only table carrying a
+vector, and it is read by `chat` as often as it is written by ingestion — so it
+is a group of its own rather than a tail of the group that produces it.
 
 **There is no engine, no session factory, no `DATABASE_URL` and no Alembic.**
 That is not an omission. Entity definitions do not need a connection —
@@ -113,6 +130,32 @@ have been replaced by a later run — which is why `resources.sync_run_id` does 
 exist. A resource belongs to the source it came from, not to the execution that
 happened to fetch it that day.
 
+**A resource has a second origin, and it is a person rather than a system.** An
+uploaded file is a `Document`, and a document becomes exactly one resource:
+
+```
+User 1 ───── * Document 1 ───── 1 Resource 1 ───── * Chunk
+```
+
+Both chains end in the same two tables, which is the point. Whether an answer
+came from a Confluence page or a PDF somebody uploaded is a fact about the
+resource, not a different retrieval path — `resources` and `chunks` do not care
+which arrow reached them.
+
+The other thing a user owns is their conversations, and those close the loop back
+onto the corpus:
+
+```
+User 1 ───── * ChatSession 1 ───── * ChatSessionMessage 1 ───── * Citation
+                                                                    │
+                                                          ┌─────────┴─────────┐
+                                                        Chunk              Resource
+```
+
+A citation hangs off the **message**, not the session. A session holds many
+answers and each one rested on its own sources, so hanging them off the session
+would lose which answer cited what — the one thing the table exists to record.
+
 | Relationship | Reverse |
 | --- | --- |
 | `Department.job_titles` | `JobTitle.department` |
@@ -133,11 +176,27 @@ happened to fetch it that day.
 | `Resource.chunks` | `Chunk.resource` |
 | `Team.chunks` | `Chunk.team` |
 | `Department.chunks` | `Chunk.department` |
+| `User.documents` | `Document.uploader` |
+| `Document.resource` | `Resource.document` |
+| `User.chat_sessions` | `ChatSession.user` |
+| `ChatSession.messages` | `ChatSessionMessage.chat_session` |
+| `ChatSessionMessage.citations` | `Citation.message` |
+| `Chunk.citations` | `Citation.chunk` |
+| `Resource.citations` | `Citation.resource` |
 
-`User.team_membership` is the only singular one: `TeamMember | None`, not a
-list, because the unique constraint means a list could never hold more than one
-element. `User.created_teams` beside it *is* a list — creating teams is not
-limited, only belonging to them.
+`User.team_membership` is the only singular one on the organization side:
+`TeamMember | None`, not a list, because the unique constraint means a list could
+never hold more than one element. `User.created_teams` beside it *is* a list —
+creating teams is not limited, only belonging to them.
+
+`Document.resource` is singular for exactly the same reason and it is the only
+other one: `resources.document_id` is `UNIQUE`, so one uploaded file becomes one
+searchable item. A hundred-page policy does not become a hundred resources — it
+becomes one resource and a hundred chunks, which is what chunks are for.
+
+`ChatSession.messages` is named for what it holds rather than after its class, so
+it does not read `ChatSession.chat_session_messages`. `Citation.message` is the
+same trim on the other side.
 
 **One relationship carries a delete cascade, and it is `Resource.chunks`.**
 Everywhere else the answer is no — not even `team_members`, which is a join table
@@ -172,6 +231,16 @@ pointing at nothing.
 `external_data_sources.credential_id` is the one nullable link in the group, and
 that is a workflow decision rather than a weaker rule — see
 [`source_credentials`](#source_credentials) below.
+
+**Citations are the case where the rule looks wrong and is not.** A citation is
+derived, the way a chunk is, so a second cascade would be the obvious move — and
+deleting a chat message that has citations is refused instead. The difference is
+what the row is *for*: a chunk exists to be embedded and re-ingestion replaces it,
+while a citation is the record that an answer was built on a particular piece of
+text. Losing it silently to a delete somewhere else would leave an answer that
+claims sources it can no longer name. `Resource.chunks` stays the only cascade in
+the schema; deleting a message, a chunk or a resource that has been cited is a
+decision, and it is in [todo.md](todo.md).
 
 ## `departments`
 
@@ -472,13 +541,76 @@ column would create a second place for that fact to be wrong. If a query for "ev
 run in this team" ever needs the join removed, that is a measured decision with a
 migration behind it, not a column added on speculation.
 
+## `documents`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `uploaded_by_user_id` | `UUID` | → `users.id`, NOT NULL |
+| `original_file_name` | `VARCHAR(512)` | NOT NULL |
+| `display_name` | `VARCHAR(512)` | nullable |
+| `mime_type` | `VARCHAR(255)` | nullable |
+| `file_size` | `BIGINT` | NOT NULL |
+| `storage_path` | `VARCHAR(1024)` | NOT NULL |
+| `checksum` | `VARCHAR(64)` | nullable |
+| `status` | `document_status` | NOT NULL, defaults to `UPLOADED` |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+One row is one file somebody put into the application by hand, normally HR — a
+leave policy, a handbook, a contract template. It is the other half of
+[`resources`](#resources): everything else in the corpus was fetched from a system
+a team connected, and this is the part that was not.
+
+```
+HR uploads leave-policy.pdf
+   ↓
+Document      status = UPLOADED
+   ↓
+Resource      resource_type = DOCUMENT
+   ↓
+Chunk 0..n    chunk_type = DOCUMENT_SECTION
+```
+
+**The bytes are not in this table.** `storage_path` is where they are — a
+filesystem path, an S3 key, whatever the deployment ends up using — and which of
+those it is has not been decided. A `BYTEA` column would make every query that
+touches a document's name pay for its content, and would put a fifty-megabyte PDF
+inside a transaction log.
+
+**`uploaded_by_user_id` records who put the file there and nothing else.** It is
+not a permission: who may *read* the document is decided by the resource it
+produces, through the same `access_scope` every other resource uses. An HR user
+uploading a policy for the whole company and one uploading a document for a single
+team write the same row here and different ones there.
+
+**`original_file_name` is kept unchanged**, so an upload can always be traced back
+to what the user actually sent, and `display_name` is the friendlier title beside
+it. `display_name` is nullable rather than defaulted to the file name, which keeps
+"nobody named this" distinguishable from "somebody named it after the file" — the
+same reasoning `resources.title` uses.
+
+**`mime_type` is nullable and `file_size` is not.** The size comes from the stored
+object and is always known once there is a `storage_path` to point at. The type
+comes from the client's `Content-Type`, which may be absent and may be wrong, and
+a parser that trusts it finds out either way. It is the same call `chunk_type`
+makes: a wrong value is worse than none.
+
+`file_size` is `BIGINT` rather than `INTEGER` because the ceiling on an uploaded
+file is a storage policy, not an integer width, and a two-gigabyte video in an HR
+folder should fail as the former.
+
+**`checksum` has room for a sha256 hex digest** and is indexed, so a re-upload of
+a file already held can be recognised rather than silently duplicated. Nothing
+here computes it — the upload path does, the same way the ingestion service owns
+`chunks.content_hash`. It is the same width for the same reason.
+
 ## `resources`
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `UUID` | primary key |
 | `external_data_source_id` | `UUID` | → `external_data_sources.id`, **nullable** |
-| `document_id` | `UUID` | **nullable, and carries no foreign key** |
+| `document_id` | `UUID` | → `documents.id`, nullable, **UNIQUE** |
 | `resource_type` | `resource_type` | NOT NULL |
 | `external_id` | `VARCHAR(512)` | nullable |
 | `title` | `VARCHAR(1024)` | nullable |
@@ -500,16 +632,31 @@ Slack message     → Resource(SLACK_MESSAGE)
 Uploaded PDF      → Resource(DOCUMENT)
 ```
 
-**A resource has two possible origins and exactly one of them is a real foreign
-key.** `external_data_source_id` points at the connected system it was fetched
-from and is `NULL` for anything uploaded; `document_id` is the other half, and it
-is a bare `UUID` column with **no `REFERENCES`** because the `documents` table
-does not exist yet. Declaring `ForeignKey("documents.id")` today would break
-`Base.metadata.create_all()` outright, and inventing a placeholder `Document`
-entity to satisfy it would be worse — a table nothing writes, existing only to
-make a constraint compile. The column is reserved, the constraint arrives with
-the entity, and until then nothing enforces that a `document_id` points at
-anything. That is in [todo.md](todo.md).
+**A resource has two possible origins and exactly one of them is ever set.**
+`external_data_source_id` points at the connected system it was fetched from and
+is `NULL` for anything uploaded; `document_id` points at the uploaded file and is
+`NULL` for anything fetched. Both are nullable, and a `CHECK` says one of them is
+not:
+
+```sql
+CHECK ((external_data_source_id IS NULL) <> (document_id IS NULL))
+```
+
+Written as a comparison of two `IS NULL` tests rather than as `num_nonnulls()`,
+which is PostgreSQL's alone — this form compiles on SQLite too, so the constraint
+is real in the tests as well as on the server. It rejects both directions: a
+resource claiming two origins, and one claiming none.
+
+This is the one place the schema *did* get a `CHECK` where it usually defers to a
+service, and the reason is that it is a structural rule rather than a policy one.
+"A resource came from somewhere" needs no code to have an opinion first, unlike
+the `access_scope` pairing two paragraphs down, which is a rule an authorisation
+layer has to state before a constraint can enforce it.
+
+`document_id` is also **`UNIQUE`**, so one uploaded file becomes one resource. A
+document that needs splitting produces chunks, not a second resource. `NULL`s stay
+distinct in SQL, so every source-origin row is unaffected — the same property
+`UNIQUE(external_data_source_id, external_id)` relies on just below.
 
 **`external_id` is how the *source* names the item**, and it only means anything
 inside that source:
@@ -688,6 +835,118 @@ Deleting a chunk never touches its resource; the relationship only runs one way.
 And nothing above resource is affected — deleting a `Team`, a `Department` or an
 `ExternalDataSource` is still refused while resources reference them, so no
 disconnect or reorganisation can quietly erase a corpus.
+
+One thing the cascade does **not** reach is citations. A chunk that has been cited
+cannot be deleted, and that includes being deleted as part of its resource's
+cascade — the `DELETE` for the chunks is issued and the database refuses it. A
+re-ingestion that replaces the chunks of a resource somebody has already asked
+about will hit this, and it is a real decision rather than an oversight; see
+[todo.md](todo.md).
+
+## `chat_sessions`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `user_id` | `UUID` | → `users.id`, NOT NULL |
+| `title` | `VARCHAR(255)` | nullable |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+One row is one conversation, and it belongs to one person. There is no
+`team_id` and no sharing: a session is private to its user, and what that user is
+*allowed to see inside it* is decided per resource by `access_scope`, not per
+session.
+
+**`title` is nullable** because a session exists from the moment it is opened and
+nothing has named it yet. Whether the name is typed by the user or derived from
+the first question is a product decision this table does not need to make.
+
+## `chat_session_messages`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `chat_session_id` | `UUID` | → `chat_sessions.id`, NOT NULL |
+| `role` | `message_role` | NOT NULL |
+| `content` | `TEXT` | NOT NULL |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+**One row is one turn**, never a question and its answer together:
+
+```
+ChatSession "Leave questions"
+ ├── USER       "How much leave do I accrue?"
+ ├── ASSISTANT  "1.75 days per month."
+ ├── USER       "Does it carry over?"
+ └── ASSISTANT  "Up to 10 days, per section 4.2."
+```
+
+A single row holding both halves would be smaller and would break the thing this
+table exists for: a citation points at *the assistant's answer*, and there would
+be nothing to point at. It also makes the history a plain ordered read rather than
+a shape that has to be unpacked, and it leaves room for a turn that is not a pair —
+a system note, a regenerated answer, an answer that never came.
+
+**There is no sequence column.** Order is `created_at`, which the mixin already
+provides. A message's position in its session is not a fact the writer should have
+to compute, and two rows written in the same millisecond are a display question
+rather than a correctness one.
+
+**`updated_at` is here because every entity in this package has it**, not because
+messages are expected to be edited. `TimestampMixin` is applied whole rather than
+split into a created-only variant, and one column that stays equal to `created_at`
+is cheaper than a second mixin that has to be kept in step with the first.
+
+## `citations`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | `UUID` | primary key |
+| `chat_message_id` | `UUID` | → `chat_session_messages.id`, NOT NULL |
+| `chunk_id` | `UUID` | → `chunks.id`, NOT NULL |
+| `resource_id` | `UUID` | → `resources.id`, NOT NULL |
+| `citation_order` | `INTEGER` | NOT NULL, unique *within* the message |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+One row is one source behind one answer — the record of what retrieval actually
+found and the answer actually used.
+
+```
+ASSISTANT "1.75 days per month."
+    ├── Citation 1 → Chunk (Accrual section)   → Resource (Leave Policy)
+    └── Citation 2 → Chunk (Carry-over)        → Resource (Leave Policy)
+```
+
+**It points at the message, not the session.** A session holds many answers and
+each rested on its own sources; hanging citations off the session would lose which
+answer cited what, which is the only thing this table records. A `USER` row simply
+has none, and so does an `ASSISTANT` row that answered without retrieving anything —
+both are real states rather than missing data.
+
+**Both `chunk_id` and `resource_id` are stored, and the second is reachable
+through the first.** That is deliberate. The two answer different questions:
+
+```
+chunk_id     which exact retrieved text supported this answer
+resource_id  which file, issue, page, message or document it came from
+```
+
+Rendering a source list is the common read and it needs the second — a file path,
+an issue key, a document title. Making it join through `chunks` to find that out
+would put a join in the path of every answer, to recover something already known
+at the moment the citation was written. The chunk stays there because "the policy
+says so" and "*this paragraph* says so" are not the same claim, and only the chunk
+can make the stronger one.
+
+**`UNIQUE(chat_message_id, citation_order)`** means one answer cannot hold two
+sources at the same position, so `[1]` and `[2]` survive a re-read rather than
+being whatever order the rows happened to come back in. It is the same rule
+`chunks` applies to `chunk_index` within a resource, and it has the same gap:
+nothing requires the orders to run 1, 2, 3 without a hole.
+
+**Nothing here renders anything.** There is no bracket, no footnote, no snippet
+and no formatting — a citation is a foreign key with a position, and turning it
+into text belongs wherever answers are rendered.
 
 ## `ApplicationRole`
 
@@ -916,6 +1175,52 @@ Adding one when its chunker exists is an `ALTER TYPE` in a migration.
 
 Unlike the other enums here it is stored **nullable** — see [`chunks`](#chunks).
 
+## `DocumentStatus`
+
+```python
+class DocumentStatus(str, Enum):
+    UPLOADED = "UPLOADED"
+    PROCESSING = "PROCESSING"
+    READY = "READY"
+    FAILED = "FAILED"
+```
+
+How far ingestion has got with an uploaded file. `UPLOADED` is the default and
+the only value anything writes today, because the row is written the moment the
+file is accepted and nothing yet parses one.
+
+```
+UPLOADED → PROCESSING → READY
+                     ↘  FAILED
+```
+
+That is the intended path and **the schema enforces none of it** — the same as
+`SourceStatus` and `SyncRunStatus` one group up. A `READY` document with no
+resource is a valid row. It is in [todo.md](todo.md).
+
+The four are about the *file*, not about the knowledge it produced. A `READY`
+document has been parsed and chunked; whether anybody may read the result is
+`access_scope` on its resource, and whether its chunks have vectors yet is
+`chunks.embedding`. Three separate questions, three separate columns, and folding
+them into one status would make each one unanswerable.
+
+## `MessageRole`
+
+```python
+class MessageRole(str, Enum):
+    USER = "USER"
+    ASSISTANT = "ASSISTANT"
+```
+
+Who said one turn. Two members and not three: there is no `SYSTEM`, because a
+system prompt is configuration belonging to whatever calls the model, not a row in
+a user's conversation history — storing one per session would mean re-reading it
+on every replay and versioning it forever.
+
+`ASSISTANT` is the only role a [`citation`](#citations) points at, and nothing in
+the schema says so. A citation on a `USER` row is a valid row today, and it is in
+[todo.md](todo.md) with the rest.
+
 ## Constraints and indexes
 
 ```sql
@@ -941,7 +1246,8 @@ ix_sync_runs_status                        INDEX
 
 uq_resources_external_data_source_id_external_id  UNIQUE (external_data_source_id, external_id)
 uq_chunks_resource_id_chunk_index                 UNIQUE (resource_id, chunk_index)
-ix_resources_document_id                   INDEX
+ck_resources_single_origin                 CHECK ((external_data_source_id IS NULL) <> (document_id IS NULL))
+ix_resources_document_id                   UNIQUE INDEX
 ix_resources_resource_type                 INDEX
 ix_resources_external_id                   INDEX
 ix_resources_access_scope                  INDEX
@@ -951,6 +1257,16 @@ ix_chunks_chunk_type                       INDEX
 ix_chunks_access_scope                     INDEX
 ix_chunks_team_id                          INDEX
 ix_chunks_department_id                    INDEX
+
+ix_documents_uploaded_by_user_id           INDEX
+ix_documents_status                        INDEX
+ix_documents_checksum                      INDEX
+
+uq_citations_chat_message_id_citation_order       UNIQUE (chat_message_id, citation_order)
+ix_chat_sessions_user_id                   INDEX
+ix_chat_session_messages_chat_session_id   INDEX
+ix_citations_chunk_id                      INDEX
+ix_citations_resource_id                   INDEX
 ```
 
 Two of these are worth explaining, since both look like something is missing.
@@ -1006,6 +1322,32 @@ The same caveat about low-cardinality btrees applies here more than anywhere:
 the millions. A partial index on the interesting scope, or a composite with
 `team_id`, is where that goes when there is a real corpus to measure. The plain
 index is the right starting point and the wrong finishing point.
+
+**`ix_resources_document_id` is the one index that changed shape.** It was a plain
+index while `document_id` referenced nothing; it is a unique index now, which is
+what makes `Document.resource` a single object rather than a list. The uniqueness
+and the lookup are one structure, so nothing was added to get it.
+
+**The last three groups add seven indexes and one unique constraint between them**,
+and the pattern is the one already established. `citations.chat_message_id` gets no
+index of its own — it leads `UNIQUE(chat_message_id, citation_order)`, which
+already answers "every source behind this answer". `chunk_id` and `resource_id` do
+get one each, because the questions they carry run the other way: "every answer
+that cited this chunk", and "how often has this document been used". Those are the
+reads that make a citation worth storing rather than recomputing.
+
+`documents.checksum` is indexed to recognise a re-upload of a file already held,
+and `status` for the same reason `external_data_sources.status` is — "what is
+still `PROCESSING`" is a listing query, and the same low-cardinality caveat applies
+to it.
+
+**No `created_at` is indexed, on any table.** Ordering a session's messages or a
+user's sessions by time is served by the foreign-key index plus a sort, over a
+handful of rows in the first case and a modest list in the second. The index worth
+having when either grows is composite — `(chat_session_id, created_at)`,
+`(user_id, created_at)` — and a bare index on `created_at` would not be a step
+towards it. That is in [todo.md](todo.md) rather than in the schema, because
+choosing between them needs a query plan against real volume.
 
 **The data source group has no unique constraint at all**, so every foreign key
 there carries its own index — there is no composite constraint to serve as one.
@@ -1067,15 +1409,26 @@ source belonging to another. Every one of those is a valid row today. They are
 collected in [todo.md](todo.md) rather than repeated here, because each one is
 work with an owner, not a gap in the schema.
 
-The knowledge group adds three more, and they are the largest of the set because
+The knowledge group adds two more, and they are the largest of the set because
 they concern who can read what. A resource's `access_scope` is not checked against
-its `team_id` and `department_id`, so `TEAM` with no team is a valid row. A
+its `team_id` and `department_id`, so `TEAM` with no team is a valid row. And a
 chunk's three permission columns are not checked against its resource's, so they
-can drift. And a `document_id` points at nothing, because there is nothing yet for
-it to point at. All three are in [todo.md](todo.md), and none of them is a
-constraint the database should be given before the service that maintains it
-exists — a `CHECK` written now would be enforcing a rule no code has yet had to
-state out loud.
+can drift. Both are in [todo.md](todo.md), and neither is a constraint the
+database should be given before the service that maintains it exists — a `CHECK`
+written now would be enforcing a rule no code has yet had to state out loud.
+
+A third one from that group is now gone: `resources.document_id` referenced
+nothing while `documents` did not exist, and the rule that a resource has exactly
+one origin was a service check waiting for a table. Both arrived together — the
+foreign key and `ck_resources_single_origin` — which is the shape these items are
+meant to take when they are closed.
+
+The document and chat groups add the smaller kind. `DocumentStatus` transitions
+are unenforced, the same as every other status enum here. Nothing checks that a
+citation hangs off an `ASSISTANT` message rather than a `USER` one. Nothing
+requires `citation_order` to run without gaps. And `storage_path` and `checksum`
+are written by an upload path that does not exist. All of them are in
+[todo.md](todo.md).
 
 ## Import graph
 
@@ -1098,12 +1451,18 @@ sync_run.py             ->  base, sync_run_status
 resource_type.py        ->  (nothing)
 resource_access_scope.py -> (nothing)
 chunk_type.py           ->  (nothing)
+document_status.py      ->  (nothing)
+message_role.py         ->  (nothing)
 resource.py             ->  base, resource_type, resource_access_scope
 chunk.py                ->  base, chunk_type, resource_access_scope, pgvector
+document.py             ->  base, document_status
+chat_session.py         ->  base
+chat_session_message.py ->  base, message_role
+citation.py             ->  base
 ```
 
 No entity module imports another entity module at runtime — not across any of
-the four groups. They name each other only as strings in their relationships,
+the seven groups. They name each other only as strings in their relationships,
 with the concrete types pulled in under `if TYPE_CHECKING:` for the annotations,
 so no cycle can form. `Team` referring back to `Department` and `Department`
 referring forward to `Team` costs nothing at import time, and neither does
@@ -1113,9 +1472,17 @@ same group.
 `resource.py` and `chunk.py` are the pair where that rule is doing real work.
 `Resource.chunks` and `Chunk.resource` name each other, and both reach out to
 `Team` and `Department` in a third group which reach back — a straight import
-would be a cycle in two directions at once. Both files also import
-`resource_access_scope`, which is exactly why the enums live in their own modules:
-a shared enum in `resource.py` would have forced `chunk.py` to import it.
+would be a cycle in two directions at once. `citation.py` is the same shape again
+and worse: it names `ChatSessionMessage`, `Chunk` and `Resource`, three classes in
+three groups, all of which name it back.
+
+**Enum modules are the one exception, and they are why this works.** They import
+nothing at all, so importing one across a group boundary cannot cycle — which is
+what `chunk.py` does with `resource_access_scope`, the only cross-group runtime
+import in the package. It is also why the enums live in their own modules rather
+than beside the entity that first used them: `ResourceAccessScope` declared inside
+`resource.py` would have forced `chunk.py` to import `resource.py` itself, and the
+cycle would be real.
 
 `chunk.py` is the one entity module with a third-party import,
 `pgvector.sqlalchemy.Vector`. It is a type, not a client — nothing about it opens
@@ -1123,21 +1490,22 @@ a connection — but it does mean `pgvector` has to be installed for
 `app.entities` to import at all.
 
 The consequence: **importing a module is what makes its mapper real to
-SQLAlchemy**, and the four groups now depend on each other's mappers.
+SQLAlchemy**, and the seven groups now depend on each other's mappers.
 `Department.teams` needs `Team` to exist before `configure_mappers()` can resolve
 it, `Team.external_data_sources` needs `ExternalDataSource`, `Resource.chunks`
-needs `Chunk`, and so on across all four groups. Import the top-level package:
+needs `Chunk`, `Citation.chunk` needs it again from a different direction, and so
+on across all seven. Import the top-level package:
 
 ```python
-from app.entities import Chunk, ExternalDataSource, Resource, Team, User
+from app.entities import ChatSession, Chunk, Citation, Document, Resource, User
 ```
 
-`app/entities/__init__.py` imports all four groups, which registers every mapper
+`app/entities/__init__.py` imports all seven groups, which registers every mapper
 and fills `Base.metadata`.
 
-Importing a single group happens to work too — `import app.entities.knowledge_sources` runs
+Importing a single group happens to work too — `import app.entities.chat` runs
 `app/entities/__init__.py` first, because Python imports a parent package before
-its child, and that is the file which pulls in the other three. It is worth knowing
+its child, and that is the file which pulls in the other six. It is worth knowing
 that this is *why* it works, and not to build on it: it is a side effect of where
 the imports sit, and it would stop being true the moment `__init__.py` imported
 groups lazily. Import the package that promises every mapper, not the one that
@@ -1145,20 +1513,29 @@ happens to reach them.
 
 ## Not implemented yet
 
-These are the first four entity groups of a larger model. Deliberately absent,
-and not to be assumed: `Document`; `ChatSession`, `ChatSessionMessage`,
-`Citation`. Also absent: authentication endpoints, JWT, password hashing, login,
-CRUD APIs, team services, source connection endpoints, the ingestion
-orchestrator, credential encryption, authorisation policies, repositories and
-migrations. The service-layer work these entities specifically wait on is in
-[todo.md](todo.md).
+**The entity layer is complete; everything that uses it is not.** These seven
+groups are the whole V1 data model — an uploaded file or a connected system
+becomes a resource, a resource becomes chunks, a chunk gets a vector, and a chat
+answer cites the chunks it rested on. No further table is planned for V1.
 
-The knowledge group in particular is columns and nothing else. There is no
-embedding generation and no client for any embedding API; no vector index and no
-similarity search; no authorisation function that reads `access_scope`; no
+What is absent is every line of code that would write one. Authentication
+endpoints, JWT, password hashing, login; CRUD APIs; team services; source
+connection endpoints; the ingestion orchestrator; credential encryption;
+authorisation policies; repositories; and migrations. The service-layer work these
+entities specifically wait on is in [todo.md](todo.md).
+
+The knowledge and chunk groups in particular are columns and nothing else. There
+is no embedding generation and no client for any embedding API; no vector index
+and no similarity search; no authorisation function that reads `access_scope`; no
 row-level security; no resource or chunk CRUD; and nothing that turns a
 `CodeChunk` or a `JiraChunk` into a `Chunk` row. `resources` and `chunks` are the
 shape those things will need, written down before they are built.
+
+The document and chat groups are newer and emptier still. Nothing uploads a file,
+stores its bytes, or moves a `DocumentStatus` past `UPLOADED`; there is no PDF or
+DOCX parser and no document chunker. Nothing opens a chat session, calls a model,
+retrieves a chunk, or writes a citation — retrieval, the RAG agent and the chat
+API are all absent, and `citations` is the table the last of those will fill.
 
 The ingestion pipelines do not use any of this. `CodeChunk`, `JiraChunk`,
 `ConfluenceChunk` and `SlackChunk` remain pydantic models that no table stores —
@@ -1187,14 +1564,22 @@ engine = create_mock_engine("postgresql://", dump)
 Base.metadata.create_all(engine, checkfirst=False)
 ```
 
-That prints the nine `CREATE TYPE`s, the ten `CREATE TABLE` statements and the
-twenty-four indexes, without connecting to anything. Note that
+That prints the eleven `CREATE TYPE`s, the fourteen `CREATE TABLE` statements and
+the thirty-one indexes, without connecting to anything. Note that
 `resource_access_scope` is emitted once even though two tables use it — one enum
 name is one PostgreSQL type. Swapping in `create_engine("sqlite://")` and a real
 `create_all` is a working smoke test — on SQLite the native enum degrades to
-`VARCHAR` with a `CHECK`, which is expected, and the unique constraints still
-reject a second team for a user who already has one, a duplicate team name within
-a department, or a second chunk at index 0 of the same resource.
+`VARCHAR` with a `CHECK`, which is expected, and the constraints still reject a
+second team for a user who already has one, a duplicate team name within a
+department, a second chunk at index 0 of the same resource, a second resource for
+one document, two citations at the same position in one answer, and a resource
+with two origins or none.
+
+That last one is worth checking on both dialects, since it is the only
+`CheckConstraint` in the schema. `ck_resources_single_origin` is written as
+`(external_data_source_id IS NULL) <> (document_id IS NULL)` rather than with
+PostgreSQL's `num_nonnulls()`, so the same DDL compiles for SQLite and the rule is
+enforced in a test as well as on a server.
 
 That SQLite pass is also what the JSON columns are shaped for. `config`,
 `credential_metadata`, `run_metadata`, `resource_metadata` and `chunk_metadata`

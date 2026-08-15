@@ -120,16 +120,6 @@ context, in one place; a resource whose scope is later *changed* also has to
 rewrite its chunks, and that is the case most likely to be forgotten. See
 [entities.md](entities.md#why-the-permission-columns-are-here-twice).
 
-**`document_id` points at nothing.** It is a bare `UUID` column with no
-`REFERENCES`, because the `documents` table does not exist. Adding the `Document`
-entity means adding the foreign key in the same migration — and until then a
-resource may carry a `document_id` for a document that was never written.
-
-**Nothing requires a resource to have exactly one origin.** A row with both
-`external_data_source_id` and `document_id` set, or with neither, is accepted. The
-intended rule is one or the other, which is a `CHECK` once `documents` exists and
-a service check before then.
-
 **`content_hash` and `embedding` are written by nobody.** The entity does no
 hashing and calls no embedding API. The ingestion service hashes `content`,
 compares against the stored `content_hash`, and only then spends an embedding
@@ -156,6 +146,64 @@ that table can be created, and an `ivfflat` or `hnsw` index before a similarity
 search is anything but a sequential scan. Both belong to the first migration and
 the first real corpus respectively — the dimension is pinned, the index is not,
 because it has to be tuned against data that does not exist yet.
+
+## Documents
+
+**Nothing uploads anything.** `storage_path` names a location no code writes to
+and `checksum` is a column nothing computes. The upload path owns storing the
+bytes, writing the row, and making those two succeed or fail together — a row
+pointing at a file that was never stored is the failure mode, and it is the same
+shape as the source-and-credential sequence at the top of this page. Which storage
+backend it writes to is not decided.
+
+**`DocumentStatus` transitions are unenforced**, the same as `SourceStatus` and
+`SyncRunStatus`. `UPLOADED → PROCESSING → READY | FAILED` is the intended path and
+nothing stops a document going straight to `READY`, or a `FAILED` one being
+reopened. A `READY` document with no resource is a valid row, and so is an
+`UPLOADED` one that already has chunks.
+
+**Nothing deduplicates on `checksum`.** The column is indexed so a re-upload of a
+file already held *can* be recognised; whether the answer is to reject it, to
+return the existing document, or to store it again under a second name is a
+product decision nobody has made.
+
+**A document's resource is not created with it.** `documents` and `resources` are
+two inserts, and the `UNIQUE` on `resources.document_id` means the second can only
+happen once — but nothing requires it to happen at all. A document with no
+resource is invisible to retrieval and looks identical to one waiting to be
+parsed.
+
+## Chat
+
+**Nothing checks that a citation points at an `ASSISTANT` message.** A citation on
+a `USER` row is a valid row today. The rule is real — a citation records what an
+*answer* rested on — and enforcing it in the database would mean either a trigger
+or carrying `role` into a composite foreign key. It belongs to whatever writes
+citations, which is the RAG path.
+
+**`citation_order` is not checked for gaps**, the same as `chunk_index` one group
+up. The unique constraint stops two sources at position 1; nothing requires an
+answer's citations to run 1, 2, 3 with nothing missing.
+
+**Deleting a cited chunk or resource is refused, including through a cascade.**
+`Resource.chunks` is `cascade="all, delete-orphan"`, so deleting a resource
+through a session issues a `DELETE` for its chunks — and the database refuses that
+`DELETE` while a citation points at one. A re-ingestion that replaces the chunks
+of a resource somebody has already asked about hits this. Whether the answer is to
+null the citation's `chunk_id`, to copy the cited text onto the citation, or to
+keep superseded chunks is open, and it is the largest undecided question in this
+group. There is deliberately no second cascade — see
+[entities.md](entities.md#citations).
+
+**Message order is `created_at` and nothing more.** Two messages written in the
+same millisecond have no defined order. That is a display question at the current
+scale and becomes a real one if messages are ever written in a batch.
+
+**No `created_at` is indexed.** Ordering a session's messages or a user's sessions
+is served by the foreign-key index plus a sort. The index worth having when either
+grows is composite — `(chat_session_id, created_at)`, `(user_id, created_at)` —
+and choosing between those and doing nothing needs a query plan against real
+volume rather than a guess against an empty table.
 
 ## Organization
 

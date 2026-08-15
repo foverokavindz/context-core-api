@@ -8,10 +8,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.entities.base import Base, TimestampMixin, UUIDMixin
-from app.entities.knowledge_sources.chunk_type import ChunkType
+from app.entities.chunks.chunk_type import ChunkType
 from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 
 if TYPE_CHECKING:
+    from app.entities.chat.citation import Citation
     from app.entities.knowledge_sources.resource import Resource
     from app.entities.organization.department import Department
     from app.entities.teams.team import Team
@@ -90,3 +91,4 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     resource: Mapped["Resource"] = relationship(back_populates="chunks")
     team: Mapped["Team | None"] = relationship(back_populates="chunks")
     department: Mapped["Department | None"] = relationship(back_populates="chunks")
+    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk") # every time this chunk was cited in an answer, which is a record of what retrieval actually found useful and not something the chunk needs to know to be embedded
