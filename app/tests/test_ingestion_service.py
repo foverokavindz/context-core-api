@@ -1,15 +1,17 @@
 """End-to-end tests for the orchestration, with GitHub replaced by a fake.
 
 Everything downstream of the connector is real here - the real FileFilter, the
-real parser registry, the real Tree-sitter grammars. Only the network is faked,
-so these tests exercise the actual pipeline wiring rather than a mock of it.
+real parser registry, the real Tree-sitter grammars. Only the two networks are
+faked, GitHub's and the embedding endpoint's, so these tests exercise the actual
+pipeline wiring rather than a mock of it.
 """
 
 import pytest
 from pydantic import SecretStr
 
 from app.connectors.base import BaseSourceConnector, SourceSnapshot
-from app.core.exceptions import AuthenticationError
+from app.core.exceptions import AuthenticationError, EmbeddingError
+from app.ingestion.embedding_service import EmbeddingRun
 from app.ingestion.ingestion_service import GitHubIngestionService
 from app.models.repository_file import RepositoryFile
 
@@ -87,6 +89,30 @@ class FakeConnector(BaseSourceConnector):
 
     def close(self) -> None:
         self.closed = True
+
+
+class FakeEmbedder:
+    """Stands in for ChunkEmbedder, without a client or a credential."""
+
+    batch_size = 30
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[int] = []
+
+    def embed_chunks(self, chunks) -> EmbeddingRun:
+        self.calls.append(len(chunks))
+        if self.error is not None:
+            raise self.error
+        for position, chunk in enumerate(chunks):
+            chunk.embedding = [float(position)] * 1536
+            chunk.embedding_model = "fake-embedding-model"
+        return EmbeddingRun(
+            embedded=len(chunks),
+            batches=(len(chunks) + 29) // 30,
+            model="fake-embedding-model",
+            dimensions=1536,
+        )
 
 
 def build_service(connector: FakeConnector, **kwargs) -> GitHubIngestionService:
@@ -281,6 +307,76 @@ def test_a_parser_crash_is_contained(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ("src/bomb.ts", "The file could not be parsed.") in result.errors
 
 
+# --------------------------------------------------------------- embedding
+
+def test_chunks_come_back_with_vectors() -> None:
+    connector = FakeConnector([make_file("src/auth/AuthService.ts", AUTH_SERVICE_TS)])
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(TOKEN, "my-org/backend")
+
+    assert embedder.calls == [3]  # one call, holding every chunk
+    assert result.embedded_chunks == result.generated_chunks == 3
+    assert result.embedding_batches == 1
+    assert result.embedding_model == "fake-embedding-model"
+    assert result.embedding_dimensions == 1536
+    assert all(chunk.embedding is not None for chunk in result.chunks)
+
+
+def test_the_embedder_is_handed_the_chunk_objects_themselves() -> None:
+    """Not a copy: the vectors have to land on what the caller already holds."""
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    result = build_service(connector, embedder=FakeEmbedder()).ingest(
+        TOKEN, "my-org/backend"
+    )
+
+    assert [chunk.embedding[0] for chunk in result.chunks] == [0.0, 1.0, 2.0]
+
+
+def test_without_an_embedder_the_run_still_produces_chunks() -> None:
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    result = build_service(connector).ingest(TOKEN, "my-org/backend")
+
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+    assert result.embedded_chunks == 0
+    assert result.embedding_batches == 0
+    assert result.embedding_model is None
+
+
+def test_embedding_can_be_turned_off_for_one_run() -> None:
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(
+        TOKEN, "my-org/backend", embed=False
+    )
+
+    assert embedder.calls == []
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+
+
+def test_no_chunks_means_no_embedding_call() -> None:
+    embedder = FakeEmbedder()
+
+    build_service(FakeConnector([]), embedder=embedder).ingest(TOKEN, "my-org/backend")
+
+    assert embedder.calls == []
+
+
+def test_an_embedding_failure_fails_the_run() -> None:
+    """Unlike a bad file, a bad batch cannot be attributed or skipped."""
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    with pytest.raises(EmbeddingError):
+        build_service(connector, embedder=FakeEmbedder(EmbeddingError())).ingest(
+            TOKEN, "my-org/backend"
+        )
+
+
 # ----------------------------------------------------------------- logging
 
 def test_the_run_header_names_the_repository_and_branch(caplog) -> None:
@@ -311,6 +407,52 @@ def test_the_summary_reports_chunks_files_and_duration(caplog) -> None:
         f"Generated {result.generated_chunks} code chunks from "
         f"{result.parsed_files} files in " in caplog.text
     )
+
+
+def test_the_embedding_summary_reports_the_model_width_and_call_count(caplog) -> None:
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    with caplog.at_level("INFO", logger="app.ingestion.embedding_service"):
+        build_service(connector, embedder=FakeEmbedder()).ingest(
+            TOKEN, "my-org/backend"
+        )
+
+    assert (
+        "Embedded 3 chunks into 1536-dimension vectors with fake-embedding-model "
+        "(1 embedding API calls)" in caplog.text
+    )
+
+
+def test_skipping_embedding_says_so_rather_than_going_quiet(caplog) -> None:
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    with caplog.at_level("INFO", logger="app.ingestion.embedding_service"):
+        build_service(connector, embedder=FakeEmbedder()).ingest(
+            TOKEN, "my-org/backend", embed=False
+        )
+
+    assert "Embedding skipped at the caller's request" in caplog.text
+
+
+def test_a_missing_embedder_is_reported_not_silent(caplog) -> None:
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    with caplog.at_level("INFO", logger="app.ingestion.embedding_service"):
+        build_service(connector).ingest(TOKEN, "my-org/backend")
+
+    assert "No embedder is configured" in caplog.text
+
+
+def test_source_code_is_not_logged_by_the_service(caplog) -> None:
+    """The same rule the embedder follows, checked on the pipeline as a whole."""
+    connector = FakeConnector([make_file("src/a.ts", AUTH_SERVICE_TS)])
+
+    with caplog.at_level("DEBUG"):
+        build_service(connector, embedder=FakeEmbedder()).ingest(
+            TOKEN, "my-org/backend"
+        )
+
+    assert "async login(email: string" not in caplog.text
 
 
 def test_parsing_is_not_logged_at_info(caplog) -> None:

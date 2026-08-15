@@ -129,9 +129,20 @@ def test_the_chunk_carries_no_thread_reaction_or_file_field(
     chunker: SlackChunker,
 ) -> None:
     """This version ignores them, so there is nowhere for them to reappear."""
-    fields = chunker.chunk(make_message()).model_dump().keys()
+    chunk = chunker.chunk(make_message())
 
-    assert fields == {"channel_id", "message_ts", "author_id", "content"}
+    assert chunk.model_dump().keys() == {
+        "channel_id",
+        "message_ts",
+        "author_id",
+        "content",
+        # Declared by the model, filled by the embedding service. The chunker
+        # never touches them, which is what the next two lines check.
+        "embedding",
+        "embedding_model",
+    }
+    assert chunk.embedding is None
+    assert chunk.embedding_model is None
 
 
 # --------------------------------------------------- one message, one chunk

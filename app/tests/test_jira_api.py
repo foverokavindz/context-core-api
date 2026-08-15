@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.api.jira_routes import get_jira_ingestion_service
 from app.core.exceptions import (
+    EmbeddingError,
     IngestionError,
     JiraApiError,
     JiraAuthenticationError,
@@ -97,7 +98,7 @@ class FakeJiraService:
         self.calls: list[dict] = []
 
     def ingest(
-        self, site_url, email, api_token, project_key, max_issues=None
+        self, site_url, email, api_token, project_key, max_issues=None, embed=True
     ) -> JiraIngestionResult:
         # Record the unwrapped token so a test can prove it arrived intact -
         # the security guarantee is about the *response*, not the plumbing.
@@ -108,6 +109,7 @@ class FakeJiraService:
                 "token": api_token.get_secret_value(),
                 "project_key": project_key,
                 "max_issues": max_issues,
+                "embed": embed,
             }
         )
         if self.error is not None:
@@ -161,6 +163,7 @@ def test_the_request_reaches_the_service_intact() -> None:
             "token": TOKEN,
             "project_key": PROJECT,
             "max_issues": 42,
+            "embed": True,
         }
     ]
 
@@ -435,3 +438,91 @@ def test_openapi_documents_the_endpoint() -> None:
 
     assert ENDPOINT in schema["paths"]
     assert "/api/v1/github/ingest" in schema["paths"]
+
+
+# --------------------------------------------------------------- embedding
+
+EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+def embedded(index: int):
+    """One chunk as the embedding service leaves it."""
+    return make_chunk(index).model_copy(
+        update={
+            "embedding": [round(0.1 * position, 4) for position in range(1536)],
+            "embedding_model": EMBEDDING_MODEL,
+        }
+    )
+
+
+def embedded_result():
+    """A completed run whose chunks all carry vectors."""
+    result = make_result(issues=2, chunks=0)
+    result.chunks = [embedded(0), embedded(1)]
+    result.embedded_chunks = len(result.chunks)
+    result.embedding_batches = 1
+    result.embedding_model = EMBEDDING_MODEL
+    result.embedding_dimensions = 1536
+    return result
+
+
+def test_counts_report_the_embedding_tally() -> None:
+    body = client_with(FakeJiraService(embedded_result())).post(
+        ENDPOINT, json=payload()
+    ).json()
+
+    assert body["counts"] == {
+        "chunks": 2,
+        "embeddings": 2,
+        "embedding_batches": 1,
+        "embedding_model": EMBEDDING_MODEL,
+        "embedding_dimensions": 1536,
+        "truncated_inputs": 0,
+    }
+
+
+def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+    body = client_with(FakeJiraService(embedded_result())).post(
+        ENDPOINT, json=payload()
+    ).json()
+
+    chunk = body["sample_chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert chunk["embedding_dimensions"] == 1536
+    assert chunk["embedding_model"] == EMBEDDING_MODEL
+
+
+def test_full_vectors_are_returned_only_when_asked_for() -> None:
+    body = client_with(FakeJiraService(embedded_result())).post(
+        ENDPOINT, json=payload(include_embeddings=True)
+    ).json()
+
+    chunk = body["sample_chunks"][0]
+    assert len(chunk["embedding"]) == 1536
+    assert chunk["embedding_preview"] is None
+
+
+def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
+    service = FakeJiraService()
+
+    body = client_with(service).post(ENDPOINT, json=payload(embed=False)).json()
+
+    assert service.calls[0]["embed"] is False
+    assert body["counts"]["embeddings"] == 0
+    assert body["counts"]["embedding_batches"] == 0
+    assert body["counts"]["embedding_model"] is None
+
+    chunk = body["sample_chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] is None
+    assert chunk["embedding_dimensions"] is None
+
+
+def test_an_embedding_failure_maps_to_502() -> None:
+    response = client_with(FakeJiraService(error=EmbeddingError())).post(
+        ENDPOINT, json=payload()
+    )
+
+    assert response.status_code == 502
+    assert TOKEN not in response.text

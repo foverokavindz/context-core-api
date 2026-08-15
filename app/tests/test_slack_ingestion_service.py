@@ -21,10 +21,12 @@ from pydantic import SecretStr
 
 from app.connectors.slack_connector import SlackSnapshot
 from app.core.exceptions import (
+    EmbeddingError,
     SlackAuthenticationError,
     SlackNotFoundError,
     SlackRateLimitError,
 )
+from app.ingestion.embedding_service import EmbeddingRun
 from app.ingestion.slack_ingestion_service import SlackIngestionService
 
 TOKEN = SecretStr("xoxb-slack-fake-token-for-tests-only")
@@ -377,3 +379,98 @@ def test_message_text_is_never_logged(caplog) -> None:
         ingest(connector)
 
     assert "sentinel-service-body" not in caplog.text
+
+
+# --------------------------------------------------------------- embedding
+
+
+class FakeEmbedder:
+    """Stands in for ChunkEmbedder, without a client or a credential."""
+
+    batch_size = 30
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[int] = []
+
+    def embed_chunks(self, chunks) -> EmbeddingRun:
+        self.calls.append(len(chunks))
+        if self.error is not None:
+            raise self.error
+        for position, chunk in enumerate(chunks):
+            chunk.embedding = [float(position)] * 1536
+            chunk.embedding_model = "fake-embedding-model"
+        return EmbeddingRun(
+            embedded=len(chunks),
+            batches=(len(chunks) + 29) // 30,
+            model="fake-embedding-model",
+            dimensions=1536,
+        )
+
+
+def test_chunks_come_back_with_vectors() -> None:
+    connector = FakeSlackConnector(
+        [make_raw("1000.000100"), make_raw("1000.000200")]
+    )
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(TOKEN, CHANNEL)
+
+    assert embedder.calls == [2]  # one call, holding every chunk
+    assert result.embedded_chunks == result.generated_chunks == 2
+    assert result.embedding_batches == 1
+    assert result.embedding_model == "fake-embedding-model"
+    assert result.embedding_dimensions == 1536
+    assert all(chunk.embedding is not None for chunk in result.chunks)
+
+
+def test_the_embedder_is_handed_the_chunk_objects_themselves() -> None:
+    """Not a copy: the vectors have to land on what the caller already holds."""
+    connector = FakeSlackConnector(
+        [make_raw("1000.000100"), make_raw("1000.000200")]
+    )
+
+    result = build_service(connector, embedder=FakeEmbedder()).ingest(TOKEN, CHANNEL)
+
+    assert [chunk.embedding[0] for chunk in result.chunks] == [0.0, 1.0]
+
+
+def test_without_an_embedder_the_run_still_produces_chunks() -> None:
+    result = ingest(FakeSlackConnector([make_raw("1000.000100")]))
+
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+    assert result.embedded_chunks == 0
+    assert result.embedding_model is None
+
+
+def test_embedding_can_be_turned_off_for_one_run() -> None:
+    connector = FakeSlackConnector([make_raw("1000.000100")])
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(
+        TOKEN, CHANNEL, embed=False
+    )
+
+    assert embedder.calls == []
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+
+
+def test_no_chunks_means_no_embedding_call() -> None:
+    """A channel of nothing but joins and thread replies embeds nothing."""
+    embedder = FakeEmbedder()
+
+    build_service(FakeSlackConnector([]), embedder=embedder).ingest(TOKEN, CHANNEL)
+
+    assert embedder.calls == []
+
+
+def test_an_embedding_failure_fails_the_run() -> None:
+    """Unlike a bad message, a bad batch cannot be attributed or skipped."""
+    connector = FakeSlackConnector([make_raw("1000.000100")])
+
+    with pytest.raises(EmbeddingError):
+        build_service(connector, embedder=FakeEmbedder(EmbeddingError())).ingest(
+            TOKEN, CHANNEL
+        )

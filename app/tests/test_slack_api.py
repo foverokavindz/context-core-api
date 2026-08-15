@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 from app.api.slack_routes import get_slack_ingestion_service
 from app.core.exceptions import (
+    EmbeddingError,
     IngestionError,
     SlackApiError,
     SlackAuthenticationError,
@@ -113,12 +114,15 @@ class FakeSlackService:
         self.error = error
         self.calls: list[dict] = []
 
-    def ingest(self, token, channel_id, max_messages=None) -> SlackIngestionResult:
+    def ingest(
+        self, token, channel_id, max_messages=None, embed=True
+    ) -> SlackIngestionResult:
         self.calls.append(
             {
                 "token": token.get_secret_value(),
                 "channel_id": channel_id,
                 "max_messages": max_messages,
+                "embed": embed,
             }
         )
         if self.error is not None:
@@ -197,6 +201,12 @@ def test_the_sample_chunks_carry_their_fields() -> None:
         "message_ts": TS,
         "author_id": USER,
         "content": "We should update the authentication flow.",
+        # This fixture's chunks were never embedded, so all four vector fields
+        # read as null rather than as an empty vector.
+        "embedding": None,
+        "embedding_preview": None,
+        "embedding_dimensions": None,
+        "embedding_model": None,
     }
 
 
@@ -231,7 +241,12 @@ def test_the_request_reaches_the_service_intact() -> None:
     client_with(service).post(ENDPOINT, json=payload(max_messages=42))
 
     assert service.calls == [
-        {"token": TOKEN, "channel_id": CHANNEL, "max_messages": 42}
+        {
+            "token": TOKEN,
+            "channel_id": CHANNEL,
+            "max_messages": 42,
+            "embed": True,
+        }
     ]
 
 
@@ -564,3 +579,90 @@ def test_the_endpoint_is_tagged_as_slack() -> None:
 
 def test_adding_slack_did_not_disturb_the_health_check() -> None:
     assert TestClient(app).get("/health").json() == {"status": "ok"}
+
+
+# --------------------------------------------------------------- embedding
+
+EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+def embedded(message_ts: str = TS):
+    """One chunk as the embedding service leaves it."""
+    return make_chunk(message_ts).model_copy(
+        update={
+            "embedding": [round(0.1 * position, 4) for position in range(1536)],
+            "embedding_model": EMBEDDING_MODEL,
+        }
+    )
+
+
+def embedded_result():
+    """A completed run whose chunks all carry vectors."""
+    result = make_result(chunks=[embedded("1000.000100"), embedded("1000.000200")])
+    result.embedded_chunks = len(result.chunks)
+    result.embedding_batches = 1
+    result.embedding_model = EMBEDDING_MODEL
+    result.embedding_dimensions = 1536
+    return result
+
+
+def test_counts_report_the_embedding_tally() -> None:
+    body = client_with(FakeSlackService(embedded_result())).post(
+        ENDPOINT, json=payload()
+    ).json()
+
+    assert body["counts"] == {
+        "chunks": 2,
+        "embeddings": 2,
+        "embedding_batches": 1,
+        "embedding_model": EMBEDDING_MODEL,
+        "embedding_dimensions": 1536,
+        "truncated_inputs": 0,
+    }
+
+
+def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+    body = client_with(FakeSlackService(embedded_result())).post(
+        ENDPOINT, json=payload()
+    ).json()
+
+    chunk = body["sample_chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert chunk["embedding_dimensions"] == 1536
+    assert chunk["embedding_model"] == EMBEDDING_MODEL
+
+
+def test_full_vectors_are_returned_only_when_asked_for() -> None:
+    body = client_with(FakeSlackService(embedded_result())).post(
+        ENDPOINT, json=payload(include_embeddings=True)
+    ).json()
+
+    chunk = body["sample_chunks"][0]
+    assert len(chunk["embedding"]) == 1536
+    assert chunk["embedding_preview"] is None
+
+
+def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
+    service = FakeSlackService()
+
+    body = client_with(service).post(ENDPOINT, json=payload(embed=False)).json()
+
+    assert service.calls[0]["embed"] is False
+    assert body["counts"]["embeddings"] == 0
+    assert body["counts"]["embedding_batches"] == 0
+    assert body["counts"]["embedding_model"] is None
+
+    chunk = body["sample_chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] is None
+    assert chunk["embedding_dimensions"] is None
+
+
+def test_an_embedding_failure_maps_to_502() -> None:
+    response = client_with(FakeSlackService(error=EmbeddingError())).post(
+        ENDPOINT, json=payload()
+    )
+
+    assert response.status_code == 502
+    assert TOKEN not in response.text

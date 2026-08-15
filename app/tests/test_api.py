@@ -13,6 +13,7 @@ from app.api.github_routes import get_ingestion_service
 from app.core.exceptions import (
     AuthenticationError,
     BranchNotFoundError,
+    EmbeddingError,
     IngestionError,
     RateLimitError,
     RepositoryNotFoundError,
@@ -23,6 +24,7 @@ from app.main import app
 from app.models.code_chunk import CodeChunk
 from app.models.ingest_response import (
     CHUNK_CONTENT_PREVIEW_CHARS,
+    EMBEDDING_PREVIEW_VALUES,
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_FILES_LIMIT,
 )
@@ -46,7 +48,12 @@ def make_file(index: int) -> RepositoryFile:
     )
 
 
-def make_chunk(index: int, content: str = "async login() { return true; }") -> CodeChunk:
+def make_chunk(
+    index: int,
+    content: str = "async login() { return true; }",
+    *,
+    embedded: bool = True,
+) -> CodeChunk:
     return CodeChunk(
         repository="my-org/backend",
         branch="main",
@@ -60,11 +67,17 @@ def make_chunk(index: int, content: str = "async login() { return true; }") -> C
         start_line=25,
         end_line=62,
         content=content,
+        embedding=[float(index)] * 1536 if embedded else None,
+        embedding_model="text-embedding-3-small" if embedded else None,
     )
 
 
 def make_result(
-    files: int = 3, chunks: int = 5, errors: list[tuple[str, str]] | None = None
+    files: int = 3,
+    chunks: int = 5,
+    errors: list[tuple[str, str]] | None = None,
+    *,
+    embedded: bool = True,
 ) -> IngestionResult:
     return IngestionResult(
         repository="my-org/backend",
@@ -75,8 +88,12 @@ def make_result(
         parsed_files=files,
         truncated=False,
         files=[make_file(i) for i in range(files)],
-        chunks=[make_chunk(i) for i in range(chunks)],
+        chunks=[make_chunk(i, embedded=embedded) for i in range(chunks)],
         errors=errors or [],
+        embedded_chunks=chunks if embedded else 0,
+        embedding_batches=(chunks + 29) // 30 if embedded else 0,
+        embedding_model="text-embedding-3-small" if embedded else None,
+        embedding_dimensions=1536 if embedded else None,
     )
 
 
@@ -88,7 +105,7 @@ class FakeService:
         self.error = error
         self.calls: list[dict] = []
 
-    def ingest(self, token, repository, branch=None, max_files=None):
+    def ingest(self, token, repository, branch=None, max_files=None, embed=True):
         # Record the unwrapped token so a test can prove it arrived intact -
         # the security guarantee is about the *response*, not the plumbing.
         self.calls.append(
@@ -97,6 +114,7 @@ class FakeService:
                 "repository": repository,
                 "branch": branch,
                 "max_files": max_files,
+                "embed": embed,
             }
         )
         if self.error is not None:
@@ -154,6 +172,7 @@ def test_request_reaches_the_service_intact() -> None:
             "repository": "my-org/backend",
             "branch": "develop",
             "max_files": None,
+            "embed": True,
         }
     ]
 
@@ -176,7 +195,7 @@ def test_sample_chunks_carry_the_symbol_detail() -> None:
         json={"token": TOKEN, "repository": "my-org/backend"},
     ).json()
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert chunk["file_path"] == "src/file0.ts"
     assert chunk["symbol_type"] == "method"
     assert chunk["symbol_name"] == "login"
@@ -213,7 +232,7 @@ def test_response_samples_rather_than_returning_everything() -> None:
     assert body["accepted_files"] == 50
     assert body["generated_chunks"] == 100
     assert len(body["files"]) == SAMPLE_FILES_LIMIT
-    assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
+    assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
 def test_long_chunk_content_is_truncated_in_the_response() -> None:
@@ -226,7 +245,7 @@ def test_long_chunk_content_is_truncated_in_the_response() -> None:
         json={"token": TOKEN, "repository": "my-org/backend"},
     ).json()
 
-    content = body["sample_chunks"][0]["content"]
+    content = body["chunks"][0]["content"]
     assert len(content) < len(long_source)
     assert content.endswith("[truncated]")
 
@@ -240,7 +259,7 @@ def test_full_returns_every_file_and_chunk() -> None:
     ).json()
 
     assert len(body["files"]) == 50
-    assert len(body["sample_chunks"]) == 100
+    assert len(body["chunks"]) == 100
     assert body["accepted_files"] == 50
     assert body["generated_chunks"] == 100
 
@@ -255,8 +274,8 @@ def test_full_leaves_chunk_content_untruncated() -> None:
         json={"token": TOKEN, "repository": "my-org/backend", "full": True},
     ).json()
 
-    assert body["sample_chunks"][0]["content"] == long_source
-    assert "[truncated]" not in body["sample_chunks"][0]["content"]
+    assert body["chunks"][0]["content"] == long_source
+    assert "[truncated]" not in body["chunks"][0]["content"]
 
 
 def test_sampling_is_still_the_default() -> None:
@@ -268,7 +287,7 @@ def test_sampling_is_still_the_default() -> None:
     ).json()
 
     assert len(body["files"]) == SAMPLE_FILES_LIMIT
-    assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
+    assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
 def test_max_files_override_is_passed_to_the_service() -> None:
@@ -298,6 +317,84 @@ def test_truncated_run_is_flagged() -> None:
     ).json()
 
     assert body["truncated"] is True
+
+
+# --------------------------------------------------------------- embedding
+
+def test_counts_report_the_whole_funnel_including_embeddings() -> None:
+    service = FakeService(make_result(files=3, chunks=95))
+    body = client_with(service).post(
+        "/api/v1/github/ingest",
+        json={"token": TOKEN, "repository": "my-org/backend"},
+    ).json()
+
+    assert body["counts"] == {
+        "chunks": 95,
+        "embeddings": 95,
+        "embedding_batches": 4,  # ceil(95 / 30)
+        "embedding_model": "text-embedding-3-small",
+        "embedding_dimensions": 1536,
+        "truncated_inputs": 0,
+    }
+
+
+def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+    service = FakeService(make_result(chunks=1))
+    body = client_with(service).post(
+        "/api/v1/github/ingest",
+        json={"token": TOKEN, "repository": "my-org/backend"},
+    ).json()
+
+    chunk = body["chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] == [0.0] * EMBEDDING_PREVIEW_VALUES
+    assert chunk["embedding_dimensions"] == 1536
+    assert chunk["embedding_model"] == "text-embedding-3-small"
+
+
+def test_full_vectors_are_returned_only_when_asked_for() -> None:
+    service = FakeService(make_result(chunks=1))
+    body = client_with(service).post(
+        "/api/v1/github/ingest",
+        json={
+            "token": TOKEN,
+            "repository": "my-org/backend",
+            "include_embeddings": True,
+        },
+    ).json()
+
+    chunk = body["chunks"][0]
+    assert len(chunk["embedding"]) == 1536
+    assert chunk["embedding_preview"] is None
+
+
+def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
+    service = FakeService(make_result(chunks=2, embedded=False))
+    body = client_with(service).post(
+        "/api/v1/github/ingest",
+        json={"token": TOKEN, "repository": "my-org/backend", "embed": False},
+    ).json()
+
+    assert service.calls[0]["embed"] is False
+    assert body["counts"]["embeddings"] == 0
+    assert body["counts"]["embedding_batches"] == 0
+    assert body["counts"]["embedding_model"] is None
+
+    chunk = body["chunks"][0]
+    assert chunk["embedding"] is None
+    assert chunk["embedding_preview"] is None
+    assert chunk["embedding_dimensions"] is None
+
+
+def test_an_embedding_failure_maps_to_502() -> None:
+    service = FakeService(error=EmbeddingError())
+    response = client_with(service).post(
+        "/api/v1/github/ingest",
+        json={"token": TOKEN, "repository": "my-org/backend"},
+    )
+
+    assert response.status_code == 502
+    assert TOKEN not in response.text
 
 
 # ---------------------------------------------------------------- security

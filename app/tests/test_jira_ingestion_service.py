@@ -9,7 +9,12 @@ import pytest
 from pydantic import SecretStr
 
 from app.connectors.jira_connector import JiraSnapshot
-from app.core.exceptions import JiraAuthenticationError, JiraRateLimitError
+from app.core.exceptions import (
+    EmbeddingError,
+    JiraAuthenticationError,
+    JiraRateLimitError,
+)
+from app.ingestion.embedding_service import EmbeddingRun
 from app.ingestion.jira_ingestion_service import JiraIngestionService
 
 SITE = "https://example.atlassian.net"
@@ -397,3 +402,99 @@ def test_issue_descriptions_are_not_logged_at_info(caplog) -> None:
         ingest(FakeJiraConnector([make_raw("TRACK-1", description=sentinel)]))
 
     assert sentinel not in caplog.text
+
+
+# --------------------------------------------------------------- embedding
+
+
+class FakeEmbedder:
+    """Stands in for ChunkEmbedder, without a client or a credential."""
+
+    batch_size = 30
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[int] = []
+
+    def embed_chunks(self, chunks) -> EmbeddingRun:
+        self.calls.append(len(chunks))
+        if self.error is not None:
+            raise self.error
+        for position, chunk in enumerate(chunks):
+            chunk.embedding = [float(position)] * 1536
+            chunk.embedding_model = "fake-embedding-model"
+        return EmbeddingRun(
+            embedded=len(chunks),
+            batches=(len(chunks) + 29) // 30,
+            model="fake-embedding-model",
+            dimensions=1536,
+        )
+
+
+def test_chunks_come_back_with_vectors() -> None:
+    connector = FakeJiraConnector([make_raw("TRACK-1"), make_raw("TRACK-2")])
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(
+        SITE, EMAIL, TOKEN, PROJECT
+    )
+
+    assert embedder.calls == [2]  # one call, holding every chunk
+    assert result.embedded_chunks == result.generated_chunks == 2
+    assert result.embedding_batches == 1
+    assert result.embedding_model == "fake-embedding-model"
+    assert result.embedding_dimensions == 1536
+    assert all(chunk.embedding is not None for chunk in result.chunks)
+
+
+def test_the_embedder_is_handed_the_chunk_objects_themselves() -> None:
+    """Not a copy: the vectors have to land on what the caller already holds."""
+    connector = FakeJiraConnector([make_raw("TRACK-1"), make_raw("TRACK-2")])
+
+    result = build_service(connector, embedder=FakeEmbedder()).ingest(
+        SITE, EMAIL, TOKEN, PROJECT
+    )
+
+    assert [chunk.embedding[0] for chunk in result.chunks] == [0.0, 1.0]
+
+
+def test_without_an_embedder_the_run_still_produces_chunks() -> None:
+    result = ingest(FakeJiraConnector([make_raw("TRACK-1")]))
+
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+    assert result.embedded_chunks == 0
+    assert result.embedding_model is None
+
+
+def test_embedding_can_be_turned_off_for_one_run() -> None:
+    connector = FakeJiraConnector([make_raw("TRACK-1")])
+    embedder = FakeEmbedder()
+
+    result = build_service(connector, embedder=embedder).ingest(
+        SITE, EMAIL, TOKEN, PROJECT, embed=False
+    )
+
+    assert embedder.calls == []
+    assert result.chunks
+    assert all(chunk.embedding is None for chunk in result.chunks)
+
+
+def test_no_chunks_means_no_embedding_call() -> None:
+    embedder = FakeEmbedder()
+
+    build_service(FakeJiraConnector([]), embedder=embedder).ingest(
+        SITE, EMAIL, TOKEN, PROJECT
+    )
+
+    assert embedder.calls == []
+
+
+def test_an_embedding_failure_fails_the_run() -> None:
+    """Unlike a bad issue, a bad batch cannot be attributed or skipped."""
+    connector = FakeJiraConnector([make_raw("TRACK-1")])
+
+    with pytest.raises(EmbeddingError):
+        build_service(connector, embedder=FakeEmbedder(EmbeddingError())).ingest(
+            SITE, EMAIL, TOKEN, PROJECT
+        )
