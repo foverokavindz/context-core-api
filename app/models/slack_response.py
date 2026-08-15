@@ -20,6 +20,7 @@ Sampling never sets `truncated`.
 
 from pydantic import BaseModel
 
+from app.models.embedding_counts import EmbeddingCounts
 from app.models.slack_message import SlackMessage
 
 # How much of the internal result is exposed. Raise these while debugging.
@@ -46,6 +47,16 @@ class SlackChunkSample(BaseModel):
     message_ts: str
     author_id: str | None = None
     content: str
+
+    # The vector, or the head of it. `embedding` holds the complete 1536 floats
+    # only when the request asked for them; otherwise `embedding_preview` shows
+    # its first few values and `embedding` stays null. Both are null when the
+    # chunk was never embedded, which `embedding_dimensions` also reports as
+    # null - so "not embedded" and "embedded, shown briefly" never look alike.
+    embedding: list[float] | None = None
+    embedding_preview: list[float] | None = None
+    embedding_dimensions: int | None = None
+    embedding_model: str | None = None
 
 
 class SlackMessageError(BaseModel):
@@ -85,6 +96,9 @@ class SlackIngestResponse(BaseModel):
     # history, meaning this is a partial view of the channel. Not affected by
     # sampling.
     truncated: bool = False
+
+    # What embedding produced, in the shape all four endpoints report it.
+    counts: EmbeddingCounts
 
     # The normalised messages, sampled unless `full` was requested. These are
     # the whole model rather than a summary: checking that every message carries

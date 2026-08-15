@@ -2,9 +2,9 @@
 
 This is the output of the Slack pipeline and its handover point, exactly as
 ConfluenceChunk is for Confluence, JiraChunk is for Jira and CodeChunk is for
-GitHub. A later phase can attach embeddings to a list of SlackChunks and store
-them without changing anything upstream, which is why this model carries no
-embedding vector, no database id and no Slack-specific field.
+GitHub. The chunker produces one of these per message; the embedding service
+then fills in `embedding` and `embedding_model` on the very same objects, in
+place. It still carries no database id and no Slack-specific field.
 
 For this first version the mapping is one chunk per message - messages are
 neither grouped into conversations nor split when long. Grouping is the more
@@ -40,3 +40,10 @@ class SlackChunk(BaseModel):
     # retrieval layer to filter and deduplicate on, not meaning for a model to
     # embed.
     content: str
+
+    # Filled by the embedding service after chunking, on this same object, and
+    # only once every batch of a run has come back intact - so these are either
+    # both set or both None, never one without the other. A one-sentence message
+    # costs the same 1536 floats as a whole wiki page does.
+    embedding: list[float] | None = None
+    embedding_model: str | None = None

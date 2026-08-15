@@ -19,7 +19,7 @@ from pydantic import SecretStr
 
 from app.connectors.base import BaseSourceConnector
 from app.connectors.github_connector import GitHubConnector
-from app.ingestion.embedding_service import ChunkEmbedder
+from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.ingestion.file_filter import FileFilter
 from app.ingestion.parser.base import ParserRegistry
 from app.ingestion.parser.typescript_parser import TypeScriptTreeSitterParser
@@ -65,6 +65,7 @@ class IngestionResult:
     embedding_batches: int = 0
     embedding_model: str | None = None
     embedding_dimensions: int | None = None
+    embedding_truncated_inputs: int = 0
 
     @property
     def generated_chunks(self) -> int:
@@ -158,48 +159,13 @@ class GitHubIngestionService:
             time.monotonic() - started,
         )
 
-        self._embed(result, embed=embed)
+        # The shared stage: identical for all four sources, so it lives beside
+        # the embedder rather than being written out four times.
+        embed_into(result, self.embedder, embed=embed)
 
         return result
 
     # --------------------------------------------------------------- internal
-
-    def _embed(self, result: IngestionResult, *, embed: bool) -> None:
-        """Attach vectors to the chunks this run produced.
-
-        Unlike parsing, this is all-or-nothing. A file that will not parse costs
-        that one file; a batch of embeddings that comes back wrong cannot be
-        localised to a file at all, so the run fails and the caller retries
-        rather than storing a corpus that is 90% searchable.
-        """
-        if self.embedder is None or not embed or not result.chunks:
-            if not embed:
-                logger.info("Embedding skipped at the caller's request")
-            elif self.embedder is None and result.chunks:
-                logger.info("No embedder is configured; chunks have no vectors")
-            return
-
-        started = time.monotonic()
-        run = self.embedder.embed_chunks(result.chunks)
-
-        result.embedded_chunks = run.embedded
-        result.embedding_batches = run.batches
-        result.embedding_model = run.model
-        result.embedding_dimensions = run.dimensions
-
-        # The closing line, shaped like the connector's "Downloaded 97 files,
-        # skipped 1 (102 GitHub API calls)". The request count is the number
-        # worth having when a later 429 needs explaining, and the model and
-        # width are what say *which* vectors this corpus now holds.
-        logger.info(
-            "Embedded %d chunks into %d-dimension vectors with %s "
-            "(%d embedding API calls) in %.1fs",
-            run.embedded,
-            run.dimensions,
-            run.model,
-            run.batches,
-            time.monotonic() - started,
-        )
 
     def _parse_file(
         self, file: RepositoryFile, errors: list[tuple[str, str]]

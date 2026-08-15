@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pydantic import SecretStr
 
 from app.connectors.slack_connector import SlackConnector
+from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.ingestion.slack_chunker import SlackChunker
 from app.ingestion.slack_parser import SlackParser
 from app.models.slack_chunk import SlackChunk
@@ -61,6 +62,15 @@ class SlackIngestionResult:
 
     errors: list[tuple[str, str]] = field(default_factory=list)
 
+    # What the embedding step did, or zeroes when it was skipped. The vectors
+    # themselves live on the chunks above - there is one list of chunks in a run
+    # and it is the one the chunker produced.
+    embedded_chunks: int = 0
+    embedding_batches: int = 0
+    embedding_model: str | None = None
+    embedding_dimensions: int | None = None
+    embedding_truncated_inputs: int = 0
+
     @property
     def parsed_messages(self) -> int:
         return len(self.messages)
@@ -80,26 +90,36 @@ class SlackIngestionService:
         chunker: SlackChunker | None = None,
         connector_factory: SlackConnectorFactory = SlackConnector,
         max_messages: int = MAX_MESSAGES_PER_INGESTION,
+        embedder: ChunkEmbedder | None = None,
     ) -> None:
         self.parser = parser or SlackParser()
         self.chunker = chunker or SlackChunker()
         self.connector_factory = connector_factory
         self.max_messages = max_messages
+        # No default embedder on purpose. A service built without one parses and
+        # chunks and stops there, which is what a test wants; the API wires a
+        # real one in. An embedder constructed by mistake would be the kind of
+        # default that quietly bills somebody.
+        self.embedder = embedder
 
     def ingest(
         self,
         token: SecretStr,
         channel_id: str,
         max_messages: int | None = None,
+        embed: bool = True,
     ) -> SlackIngestionResult:
         """Ingest one Slack channel and return everything that was produced.
 
-        `max_messages` overrides the service default for this run only.
+        `max_messages` overrides the service default for this run only. `embed`
+        turns the embedding step off for a run that only wants chunks; it does
+        nothing when the service was built without an embedder.
 
         Raises IngestionError subclasses for whole-run failures - a rejected
-        token, a channel the bot is not in, a rate limit. Problems with
-        individual messages are collected into `errors` and do not stop the run,
-        and messages the parser filters out are not problems at all.
+        token, a channel the bot is not in, a rate limit, and a failed embedding
+        pass. Problems with individual messages are collected into `errors` and
+        do not stop the run, and messages the parser filters out are not
+        problems at all.
         """
         logger.info("Ingesting Slack channel %s", channel_id)
         started = time.monotonic()
@@ -141,4 +161,9 @@ class SlackIngestionService:
             result.generated_chunks,
             time.monotonic() - started,
         )
+
+        # The shared stage: identical for all four sources, so it lives beside
+        # the embedder rather than being written out four times.
+        embed_into(result, self.embedder, embed=embed)
+
         return result

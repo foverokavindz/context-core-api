@@ -64,3 +64,15 @@ class SlackIngestRequest(BaseModel):
         "has more, the response is marked `truncated`.",
         examples=[200],
     )
+    embed: bool = Field(
+        default=True,
+        description="Embed the chunks this run produces. Turn it off to fetch, "
+        "filter and chunk without spending embedding quota - the response is "
+        "the same shape either way, with null vectors.",
+    )
+    include_embeddings: bool = Field(
+        default=False,
+        description="Return each chunk's complete vector instead of the first "
+        "few values. A one-line message still carries 1536 floats, so this adds "
+        "up faster here than anywhere else.",
+    )

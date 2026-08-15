@@ -38,13 +38,14 @@ URL, and not folded into any message a client sees.
 import logging
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol
 
 from dotenv import load_dotenv
 from openai import APIConnectionError, APIStatusError, OpenAI, RateLimitError
 
 from app.core.exceptions import EmbeddingConfigurationError, EmbeddingError
-from app.models.code_chunk import CodeChunk
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,36 @@ MAX_EMBEDDING_INPUT_CHARS = 24_000
 # time before the same failure.
 MAX_ATTEMPTS = 3
 RETRY_BACKOFF_SECONDS = 2.0
+
+
+class EmbeddableChunk(Protocol):
+    """What this module needs from a chunk: text in, vector out.
+
+    CodeChunk, JiraChunk, ConfluenceChunk and SlackChunk all satisfy this
+    without inheriting anything - which is the point. The four pipelines are
+    deliberately independent (see docs/architecture.md), so the one thing they
+    genuinely share is written down as a shape rather than imposed as a base
+    class. Nothing here knows or cares which source a chunk came from.
+    """
+
+    content: str
+    embedding: list[float] | None
+    embedding_model: str | None
+
+
+class EmbeddableResult(Protocol):
+    """What `embed_into` needs from an ingestion result.
+
+    Every pipeline's result dataclass already carries these five: the chunks it
+    produced, and the four numbers describing what embedding them took.
+    """
+
+    chunks: Sequence[EmbeddableChunk]
+    embedded_chunks: int
+    embedding_batches: int
+    embedding_model: str | None
+    embedding_dimensions: int | None
+    embedding_truncated_inputs: int
 
 
 @dataclass
@@ -126,8 +157,12 @@ class ChunkEmbedder:
 
     # ----------------------------------------------------------------- public
 
-    def embed_chunks(self, chunks: list[CodeChunk]) -> EmbeddingRun:
+    def embed_chunks(self, chunks: Sequence[EmbeddableChunk]) -> EmbeddingRun:
         """Embed every chunk and attach the vectors to those same objects.
+
+        Takes chunks from any source - code, issues, pages or messages. It reads
+        `content` and writes `embedding` and `embedding_model`, and there is
+        nothing else it could do differently for one source than another.
 
         The chunks are modified in place - this is deliberately not a function
         that returns new chunks, because everything upstream already holds
@@ -351,6 +386,67 @@ class ChunkEmbedder:
         logger.info("Embedding with deployment %s", deployment)
         self._client = OpenAI(api_key=api_key, base_url=base_url)
         return self._client
+
+
+# ------------------------------------------------------- the pipeline stage
+
+
+def embed_into(
+    result: EmbeddableResult,
+    embedder: ChunkEmbedder | None,
+    *,
+    embed: bool = True,
+) -> None:
+    """Embed a run's chunks and record what that took on the result.
+
+    This is the embedding stage of every pipeline, in one place. GitHub, Jira,
+    Confluence and Slack each call it with their own result object and get
+    identical behaviour, because there is nothing about embedding that differs
+    between a TypeScript method and a Slack message.
+
+    Three ways to do nothing, each of them normal: no embedder was configured,
+    the caller asked to skip it, or the run produced no chunks. Each says so in
+    the log rather than going quiet.
+
+    Unlike parsing, this is all-or-nothing. A file that will not parse costs
+    that one file; a batch of embeddings that comes back wrong cannot be
+    attributed to a single chunk at all, so the run fails and the caller retries
+    rather than storing a corpus that is 90% searchable.
+    """
+    if not embed:
+        logger.info("Embedding skipped at the caller's request")
+        return
+
+    if embedder is None:
+        if result.chunks:
+            logger.info("No embedder is configured; chunks have no vectors")
+        return
+
+    if not result.chunks:
+        return
+
+    started = time.monotonic()
+    run = embedder.embed_chunks(result.chunks)
+
+    result.embedded_chunks = run.embedded
+    result.embedding_batches = run.batches
+    result.embedding_model = run.model
+    result.embedding_dimensions = run.dimensions
+    result.embedding_truncated_inputs = run.truncated_inputs
+
+    # The closing line, shaped like the connectors' "Downloaded 97 files,
+    # skipped 1 (102 GitHub API calls)". The request count is the number worth
+    # having when a later 429 needs explaining, and the model and width are what
+    # say *which* vectors this corpus now holds.
+    logger.info(
+        "Embedded %d chunks into %d-dimension vectors with %s "
+        "(%d embedding API calls) in %.1fs",
+        run.embedded,
+        run.dimensions,
+        run.model,
+        run.batches,
+        time.monotonic() - started,
+    )
 
 
 # ------------------------------------------------------------------ helpers

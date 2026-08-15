@@ -20,6 +20,8 @@ wanted.
 
 from pydantic import BaseModel
 
+from app.models.embedding_counts import EmbeddingCounts
+
 # How much of the internal result is exposed. Raise these while debugging.
 SAMPLE_FILES_LIMIT = 10
 SAMPLE_CHUNKS_LIMIT = 20
@@ -71,22 +73,6 @@ class ChunkSample(BaseModel):
     embedding_model: str | None = None
 
 
-class IngestionCounts(BaseModel):
-    """The tally to check a run against, in one place.
-
-    `chunks` and `embeddings` being equal is the assertion that matters: it is
-    what says every chunk came back from the embedding service with a vector of
-    its own. `embedding_batches` is `ceil(chunks / 30)` on a successful run.
-    """
-
-    files: int
-    chunks: int
-    embeddings: int
-    embedding_batches: int
-    embedding_model: str | None = None
-    embedding_dimensions: int | None = None
-
-
 class FileError(BaseModel):
     """A file that was skipped, and why.
 
@@ -116,11 +102,8 @@ class IngestResponse(BaseModel):
     # meaning this is a partial view of the repository.
     truncated: bool = False
 
-    # The same numbers the funnel above reports, plus the embedding ones,
-    # gathered where they can be compared at a glance rather than scrolled
-    # between. Kept alongside the older fields rather than replacing them,
-    # because those are what the other three connectors' responses look like.
-    counts: IngestionCounts
+    # What embedding produced, in the shape all four endpoints report it.
+    counts: EmbeddingCounts
 
     files: list[FileSummary] = []
     chunks: list[ChunkSample] = []
