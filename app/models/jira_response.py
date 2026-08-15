@@ -21,6 +21,7 @@ Sampling never sets `truncated`.
 
 from pydantic import BaseModel
 
+from app.models.embedding_counts import EmbeddingCounts
 from app.models.jira_issue import JiraIssue
 
 # How much of the internal result is exposed. Raise these while debugging.
@@ -47,6 +48,16 @@ class JiraChunkSample(BaseModel):
     status: str | None = None
     parent_key: str | None = None
     content: str
+
+    # The vector, or the head of it. `embedding` holds the complete 1536 floats
+    # only when the request asked for them; otherwise `embedding_preview` shows
+    # its first few values and `embedding` stays null. Both are null when the
+    # chunk was never embedded, which `embedding_dimensions` also reports as
+    # null - so "not embedded" and "embedded, shown briefly" never look alike.
+    embedding: list[float] | None = None
+    embedding_preview: list[float] | None = None
+    embedding_dimensions: int | None = None
+    embedding_model: str | None = None
 
 
 class JiraIssueError(BaseModel):
@@ -78,6 +89,9 @@ class JiraIngestResponse(BaseModel):
     # True when the issue cap stopped the run before Jira ran out of results,
     # meaning this is a partial view of the project. Not affected by sampling.
     truncated: bool = False
+
+    # What embedding produced, in the shape all four endpoints report it.
+    counts: EmbeddingCounts
 
     # The normalised issues, sampled unless `full` was requested. These are the
     # whole model rather than a summary: checking that descriptions arrived as

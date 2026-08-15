@@ -1,10 +1,10 @@
 """JiraChunk - one Epic or Story rendered as embeddable text.
 
 This is the output of the Jira pipeline and its handover point, exactly as
-CodeChunk is for GitHub. A later phase can attach embeddings to a list of
-JiraChunks and store them without changing anything upstream, which is why this
-model carries no embedding vector, no database id, and no storage-specific
-field.
+CodeChunk is for GitHub. The chunker produces one of these per issue; the
+embedding service then fills in `embedding` and `embedding_model` on the very
+same objects, in place. It still carries no database id and no storage-specific
+field - which row it became is the persistence layer's business.
 
 For this first version the mapping is one chunk per issue - no splitting by
 tokens, characters, paragraphs or headings. Jira descriptions are short enough
@@ -39,3 +39,9 @@ class JiraChunk(BaseModel):
     # chunker. For an Epic this names its children by key only - their
     # descriptions live in their own chunks.
     content: str
+
+    # Filled by the embedding service after chunking, on this same object, and
+    # only once every batch of a run has come back intact - so these are either
+    # both set or both None, never one without the other.
+    embedding: list[float] | None = None
+    embedding_model: str | None = None
