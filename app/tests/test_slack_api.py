@@ -185,11 +185,17 @@ def test_a_gap_between_retrieved_and_parsed_is_reported_not_hidden() -> None:
 def test_the_messages_carry_their_fields() -> None:
     body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
 
-    assert body["messages"][0] == {
+    assert body["resource_files"][0] == {
         "channel_id": CHANNEL,
         "message_ts": TS,
         "author_id": USER,
         "text": "We should update the authentication flow.",
+        # This endpoint carries no permission context - it takes a token and a
+        # channel and nothing else - so the three fields serialise at their
+        # defaults. Only /api/v1/ingestData fills them in.
+        "team_id": None,
+        "department_id": None,
+        "access_scope": "TEAM",
     }
 
 
@@ -207,6 +213,10 @@ def test_the_sample_chunks_carry_their_fields() -> None:
         "embedding_preview": None,
         "embedding_dimensions": None,
         "embedding_model": None,
+        # Unset for the same reason the message's are, one test up.
+        "team_id": None,
+        "department_id": None,
+        "access_scope": "TEAM",
     }
 
 
@@ -216,7 +226,7 @@ def test_an_empty_channel_still_answers_200() -> None:
     response = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload())
 
     assert response.status_code == 200
-    assert response.json()["messages"] == []
+    assert response.json()["resource_files"] == []
     assert response.json()["sample_chunks"] == []
 
 
@@ -406,7 +416,7 @@ def test_the_message_list_is_sampled_by_default() -> None:
 
     body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
 
-    assert len(body["messages"]) == SAMPLE_MESSAGES_LIMIT
+    assert len(body["resource_files"]) == SAMPLE_MESSAGES_LIMIT
     assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
@@ -432,7 +442,7 @@ def test_sampling_does_not_set_truncated() -> None:
 
     body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
 
-    assert len(body["messages"]) < body["parsed_messages"]
+    assert len(body["resource_files"]) < body["parsed_messages"]
     assert body["truncated"] is False
 
 
@@ -482,7 +492,7 @@ def test_full_returns_every_message_and_chunk() -> None:
         ENDPOINT, json=payload(full=True)
     ).json()
 
-    assert len(body["messages"]) == 40
+    assert len(body["resource_files"]) == 40
     assert len(body["sample_chunks"]) == 40
 
 

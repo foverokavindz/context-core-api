@@ -75,6 +75,11 @@ class ExternalDataSource(UUIDMixin, TimestampMixin, Base):
         nullable=True,
     ) # what the connector points at - repository and branch, site_url and project_key, channel_id - one column rather than a set per connector, and never a secret
 
+    token: Mapped[str | None] = mapped_column(
+        String(2048),
+        nullable=True,
+    ) # the access token this source authenticates with, held in plain text for now so a future SyncRun can re-run an ingestion without asking for it again - encryption and the source_credentials row it really belongs in are in docs/todo.md
+
     last_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

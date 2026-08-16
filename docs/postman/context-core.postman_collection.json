@@ -1,0 +1,362 @@
+{
+  "info": {
+    "name": "Context Core — Ingestion API",
+    "description": "Import this, then set the collection variables (right-click the collection → Edit → Variables) before sending anything.\n\nFill in at minimum: githubToken, or the Atlassian pair, or slackToken — whichever source you are testing.\n\nThe 'Common ingestion' folder is the new endpoint: it answers 202 immediately and writes the run to app/data/runs/. The 'Per-source (synchronous)' folder is the four original endpoints, which hand the whole run back inline.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" },
+
+    { "key": "teamId", "value": "11111111-1111-1111-1111-111111111111" },
+    { "key": "departmentId", "value": "22222222-2222-2222-2222-222222222222" },
+    { "key": "userId", "value": "33333333-3333-3333-3333-333333333333" },
+
+    { "key": "githubToken", "value": "", "type": "secret" },
+    { "key": "repository", "value": "my-org/backend" },
+    { "key": "branch", "value": "main" },
+
+    { "key": "atlassianEmail", "value": "you@company.com" },
+    { "key": "atlassianToken", "value": "", "type": "secret" },
+    { "key": "siteUrl", "value": "https://company.atlassian.net" },
+    { "key": "projectKey", "value": "TRACK" },
+    { "key": "spaceKey", "value": "TR" },
+
+    { "key": "slackToken", "value": "", "type": "secret" },
+    { "key": "channelId", "value": "C0123456789" },
+
+    {
+      "key": "lastSourceId",
+      "value": "",
+      "description": "Set automatically by the common-ingestion requests, so you can see the id the run file is named after."
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "Common ingestion (202, runs in background)",
+      "description": "POST /api/v1/ingestData/{source}. Answers immediately; the result lands in app/data/runs/<source>_<id>.json.",
+      "item": [
+        {
+          "name": "GitHub",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('lastSourceId', body.external_data_source_id);",
+                  "console.log('Run file: app/data/runs/github_' + body.external_data_source_id + '.json');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/github",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "github"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"TrackIt API\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"access_scope\": \"TEAM\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"GITHUB\",\n  \"config\": {\n    \"repository\": \"{{repository}}\",\n    \"branch\": \"{{branch}}\"\n  },\n  \"token\": \"{{githubToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Jira",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('lastSourceId', body.external_data_source_id);",
+                  "console.log('Run file: app/data/runs/jira_' + body.external_data_source_id + '.json');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/jira",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "jira"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"TRACK board\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"access_scope\": \"TEAM\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"JIRA\",\n  \"config\": {\n    \"site_url\": \"{{siteUrl}}\",\n    \"email\": \"{{atlassianEmail}}\",\n    \"project_key\": \"{{projectKey}}\"\n  },\n  \"token\": \"{{atlassianToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Confluence",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('lastSourceId', body.external_data_source_id);",
+                  "console.log('Run file: app/data/runs/confluence_' + body.external_data_source_id + '.json');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/confluence",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "confluence"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"Team Wiki\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"access_scope\": \"TEAM\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"CONFLUENCE\",\n  \"config\": {\n    \"site_url\": \"{{siteUrl}}\",\n    \"email\": \"{{atlassianEmail}}\",\n    \"space_key\": \"{{spaceKey}}\"\n  },\n  \"token\": \"{{atlassianToken}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Slack",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('lastSourceId', body.external_data_source_id);",
+                  "console.log('Run file: app/data/runs/slack_' + body.external_data_source_id + '.json');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/slack",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "slack"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"#backend-team\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"access_scope\": \"TEAM\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"SLACK\",\n  \"config\": {\n    \"channel_id\": \"{{channelId}}\"\n  },\n  \"token\": \"{{slackToken}}\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Common ingestion — the rejected cases",
+      "description": "These need no real credentials. Send them first to confirm the endpoint is wired up.",
+      "item": [
+        {
+          "name": "404 — unknown source",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('names what is supported', () => pm.expect(pm.response.json().detail).to.include('github'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/gitlab",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "gitlab"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"x\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"GITHUB\",\n  \"config\": { \"repository\": \"my-org/backend\" },\n  \"token\": \"anything\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 — config missing a required key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('names the missing key', () => pm.expect(pm.response.json().detail).to.include('repository'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/github",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "github"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"x\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"GITHUB\",\n  \"config\": {},\n  \"token\": \"anything\"\n}"
+            }
+          }
+        },
+        {
+          "name": "400 — source_type disagrees with the path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('400', () => pm.response.to.have.status(400));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/github",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "github"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"x\",\n  \"team_id\": \"{{teamId}}\",\n  \"department_id\": \"{{departmentId}}\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"JIRA\",\n  \"config\": { \"repository\": \"my-org/backend\" },\n  \"token\": \"anything\"\n}"
+            }
+          }
+        },
+        {
+          "name": "422 — unusable body (bad UUID, unknown field)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('422', () => pm.response.to.have.status(422));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ingestData/github",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "ingestData", "github"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"title\": \"x\",\n  \"team_id\": \"not-a-uuid\",\n  \"department_id\": \"{{departmentId}}\",\n  \"created_by_user_id\": \"{{userId}}\",\n  \"source_type\": \"GITHUB\",\n  \"config\": { \"repository\": \"my-org/backend\" },\n  \"token\": \"anything\",\n  \"typo_field\": \"rejected\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Per-source (synchronous, result inline)",
+      "description": "The four original endpoints. Same pipelines, but they hold the connection open and return the whole run — useful for debugging one connector against something small.",
+      "item": [
+        {
+          "name": "GitHub /ingest",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/github/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "github", "ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"token\": \"{{githubToken}}\",\n  \"repository\": \"{{repository}}\",\n  \"branch\": \"{{branch}}\",\n  \"max_files\": 20,\n  \"embed\": false,\n  \"full\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Jira /ingest",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/jira/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "jira", "ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"site_url\": \"{{siteUrl}}\",\n  \"email\": \"{{atlassianEmail}}\",\n  \"api_token\": \"{{atlassianToken}}\",\n  \"project_key\": \"{{projectKey}}\",\n  \"max_issues\": 20,\n  \"embed\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Confluence /ingest",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/confluence/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "confluence", "ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"site_url\": \"{{siteUrl}}\",\n  \"email\": \"{{atlassianEmail}}\",\n  \"api_token\": \"{{atlassianToken}}\",\n  \"space_key\": \"{{spaceKey}}\",\n  \"max_pages\": 20,\n  \"embed\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Slack /ingest",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/slack/ingest",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "slack", "ingest"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"token\": \"{{slackToken}}\",\n  \"channel_id\": \"{{channelId}}\",\n  \"max_messages\": 20,\n  \"embed\": false\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

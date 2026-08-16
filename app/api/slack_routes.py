@@ -72,12 +72,12 @@ def ingest_channel(
         max_messages=request.max_messages,
         embed=request.embed,
     )
-    return _to_response(
+    return to_response(
         result, full=request.full, include_embeddings=request.include_embeddings
     )
 
 
-def _to_response(
+def to_response(
     result: SlackIngestionResult,
     *,
     full: bool = False,
@@ -89,6 +89,9 @@ def _to_response(
     that result is serialised, and `include_embeddings` whether a chunk's vector
     is shown whole or as its first few values. Neither affects `truncated`,
     which reports whether the *ingestion* saw the whole channel.
+
+    Public rather than private because the background pipeline serialises its
+    run through this same projection.
     """
     message_limit = None if full else SAMPLE_MESSAGES_LIMIT
     chunk_limit = None if full else SAMPLE_CHUNKS_LIMIT
@@ -107,7 +110,7 @@ def _to_response(
             embedding_dimensions=result.embedding_dimensions,
             truncated_inputs=result.embedding_truncated_inputs,
         ),
-        messages=result.messages[:message_limit],
+        resource_files=result.messages[:message_limit],
         sample_chunks=[
             _to_sample(chunk, full=full, include_embeddings=include_embeddings)
             for chunk in result.chunks[:chunk_limit]
@@ -139,6 +142,9 @@ def _to_sample(
         # instead of borrowing the width of the ones that did not.
         embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
         embedding_model=chunk.embedding_model,
+        team_id=chunk.team_id,
+        department_id=chunk.department_id,
+        access_scope=chunk.access_scope,
     )
 
 

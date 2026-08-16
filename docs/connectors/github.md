@@ -77,7 +77,16 @@ in the three fields, **Execute**.
 	"generated_chunks": 356,
 	"truncated": false,
 
-	"files": [{ "path": "src/auth/AuthService.ts", "language": "typescript", "size": 2450 }],
+	"resource_files": [
+		{
+			"path": "src/auth/AuthService.ts",
+			"language": "typescript",
+			"size": 2450,
+			"team_id": null,
+			"department_id": null,
+			"access_scope": "TEAM"
+		}
+	],
 
 	"sample_chunks": [
 		{
@@ -111,7 +120,17 @@ only the HTTP projection is sampled.
 > **The whole repository is always processed.** A response showing 10 files and
 > 20 chunks while reporting `accepted_files: 98` and `generated_chunks: 441` is
 > not a partial run — it is the complete run, sampled for display. The counts
-> are the truth; `files` and `sample_chunks` are a window onto it.
+> are the truth; `resource_files` and `chunks` are a window onto it.
+
+> **`resource_files` is the same key on all four endpoints.** A GitHub file, a
+> Jira issue, a Confluence page and a Slack message all arrive under it — each
+> one becomes a `resources` row, which is what the name is for.
+
+> **The three permission fields are null here, and that is correct.** This
+> endpoint takes a token and a repository and knows nothing about a team, so
+> `team_id` and `department_id` serialise as null and `access_scope` as its
+> default. `POST /api/v1/ingestData/github` is the path that fills them in —
+> see [../architecture.md](../architecture.md).
 
 To see everything, send `"full": true`:
 
@@ -280,7 +299,7 @@ takes a tree SHA — the commit SHA is what gets stamped onto every file and chu
 2. Open <http://localhost:8000/docs> and call the endpoint with a real token, or
    use the `curl` command above.
 3. Check that `discovered_files` is larger than `accepted_files` (the filter is
-   working), that `.ts` and `.tsx` paths appear in `files`, and that
+   working), that `.ts` and `.tsx` paths appear in `resource_files`, and that
    `sample_chunks` contains a `method` with a `parent_symbol`.
 4. Check the server log — it reports the repository, branch, commit and counts,
    and contains no credential.

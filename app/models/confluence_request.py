@@ -28,19 +28,6 @@ EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
 class ConfluenceIngestRequest(BaseModel):
-    """A request to ingest the pages of one Confluence space.
-
-    The token is a SecretStr rather than a plain str on purpose. Pydantic prints
-    it as `**********` in every repr, log line and `model_dump()`, so it cannot
-    leak through an accidental log statement or by being echoed into a response.
-    `.get_secret_value()` is called in exactly one place - where the Confluence
-    HTTP client is constructed - and the value is never stored anywhere.
-
-    Unknown fields are forbidden. The API deliberately does not accept a CQL
-    query, a body format or a page-status filter from the caller; pydantic's
-    default would silently ignore such a key rather than rejecting it, which is
-    the wrong answer for restrictions that exist to keep a run inside one space.
-    """
 
     model_config = ConfigDict(extra="forbid")
 

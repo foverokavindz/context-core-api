@@ -102,12 +102,15 @@ Note that this stage does **not** yet embed or persist Slack chunks.
 
 	"truncated": false,
 
-	"messages": [
+	"resource_files": [
 		{
 			"channel_id": "C0123456789",
 			"message_ts": "1754810101.100100",
 			"author_id": "U0000000001",
-			"text": "We should update the authentication flow."
+			"text": "We should update the authentication flow.",
+			"team_id": null,
+			"department_id": null,
+			"access_scope": "TEAM"
 		}
 	],
 
@@ -318,9 +321,9 @@ Sampling never sets `truncated`.
 5. Check that `generated_chunks == parsed_messages`, and that
    `parsed_messages` is **lower** than `retrieved_messages` on any channel with
    real activity — that is the filter working, not a fault.
-6. Check that **every** entry in `messages` carries the `channel_id` you asked
+6. Check that **every** entry in `resource_files` carries the `channel_id` you asked
    for, and that no message from another channel appears.
-7. Find a thread in the channel. Confirm its **root** appears in `messages` and
+7. Find a thread in the channel. Confirm its **root** appears in `resource_files` and
    that **none of its replies do**, including any that were broadcast back into
    the channel.
 8. Confirm no `channel_join`, `channel_leave` or topic-change text appears

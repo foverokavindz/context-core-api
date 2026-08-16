@@ -97,15 +97,42 @@ HTTP request  ->  Slack connector  ->  conversations.history
 The four pipelines are deliberately kept separate; [docs/architecture.md](docs/architecture.md)
 explains why, and where each one's boundary sits.
 
+**One endpoint reaches all four.** `POST /api/v1/ingestData/{source}` takes the
+same body whatever it is pointed at, with the per-connector part in `config`. It
+records the connection as an `ExternalDataSource`, answers `202` immediately, and
+runs the source's own pipeline afterwards — stamping the team, department and
+access scope onto every item and chunk on the way out.
+
+```
+POST /api/v1/ingestData/github   ->  202 { external_data_source_id, status }
+                                          |
+                                          `-> background
+                                                GitHub | Jira | Confluence | Slack
+                                                pipeline, unchanged
+                                                    |
+                                              permission fields
+                                                    |
+                                            app/data/runs/<id>.json
+```
+
+The four endpoints above still exist and still answer with a whole run inline,
+which is what makes them useful for debugging one connector.
+[docs/ingestion-endpoint.md](docs/ingestion-endpoint.md) has the request shape,
+the per-source `config` keys and what the run file holds.
+
 ## What it does not do — yet
 
 Deliberately absent, so the ingestion path stays small enough to understand and
 control end to end:
 
-- no embeddings, no vector store, no pgvector
-- no database of any kind
+- no vector store, no pgvector
+- no database of any kind — the `ExternalDataSource` a run records is built and
+  never inserted, and a run's output goes to a file
 - no retrieval, reranking or LLM calls
-- no background queues, webhooks or incremental indexing
+- no authentication — the team and user a request names are trusted as sent
+- no credential table, and the access token sits on the source in plain text
+- no queue, no webhooks and no incremental indexing; the background run is
+  FastAPI's own `BackgroundTasks` and does not survive a restart
 - no `git clone` — everything goes through the GitHub API
 - no Jira comments, attachments, changelogs, sprints or assignees
 - no Confluence attachments, comments, blog posts, labels or page history
@@ -138,7 +165,7 @@ uvicorn app.main:app --reload
 - Health: <http://localhost:8000/health>
 
 ```bash
-pytest app/tests -v          # 1,079 tests, no network, no credentials
+pytest app/tests -v          # 1,192 tests, no network, no credentials
 ```
 
 Full detail in [docs/getting-started.md](docs/getting-started.md).
@@ -149,6 +176,7 @@ Full detail in [docs/getting-started.md](docs/getting-started.md).
 | --- | --- |
 | [docs/getting-started.md](docs/getting-started.md) | Install, run the API, run the tests |
 | [docs/architecture.md](docs/architecture.md) | Module layout, the boundaries each pipeline stops at, why the four are kept separate |
+| [docs/ingestion-endpoint.md](docs/ingestion-endpoint.md) | `POST /api/v1/ingestData/{source}` — the request shape, the per-source `config` keys, what gets recorded, and what the background run writes |
 | [docs/connectors/github.md](docs/connectors/github.md) | `POST /api/v1/github/ingest` — request and response, file filtering rules, Tree-sitter parser behaviour, source fidelity, errors |
 | [docs/connectors/jira.md](docs/connectors/jira.md) | `POST /api/v1/jira/ingest` — scoped tokens and the Atlassian gateway, the JQL, Epic ↔ Story linking without N+1 calls, ADF flattening, errors |
 | [docs/connectors/confluence.md](docs/connectors/confluence.md) | `POST /api/v1/confluence/ingest` — space resolution and confinement, cursor pagination, storage-format flattening, errors |

@@ -197,7 +197,7 @@ def test_the_site_is_echoed_back() -> None:
 def test_the_pages_are_returned_in_full_shape() -> None:
     body = client_with(FakeConfluenceService()).post(ENDPOINT, json=payload()).json()
 
-    page = body["pages"][0]
+    page = body["resource_files"][0]
     assert page["page_id"] == "111"
     assert page["space_key"] == SPACE
     assert page["title"] == "Authentication"
@@ -239,7 +239,7 @@ def test_an_empty_space_is_a_valid_response() -> None:
 
     assert body["retrieved_pages"] == 0
     assert body["generated_chunks"] == 0
-    assert body["pages"] == []
+    assert body["resource_files"] == []
 
 
 def test_run_notes_are_reported() -> None:
@@ -412,7 +412,7 @@ def test_the_page_list_is_sampled_by_default() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    assert len(body["pages"]) == SAMPLE_PAGES_LIMIT
+    assert len(body["resource_files"]) == SAMPLE_PAGES_LIMIT
     assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
@@ -444,7 +444,7 @@ def test_sampling_does_not_set_truncated() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    assert len(body["pages"]) < body["parsed_pages"]
+    assert len(body["resource_files"]) < body["parsed_pages"]
     assert body["truncated"] is False
 
 
@@ -482,7 +482,7 @@ def test_full_returns_every_page_and_chunk() -> None:
         ENDPOINT, json=payload(full=True)
     ).json()
 
-    assert len(body["pages"]) == 40
+    assert len(body["resource_files"]) == 40
     assert len(body["sample_chunks"]) == 40
 
 

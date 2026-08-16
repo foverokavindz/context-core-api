@@ -17,6 +17,7 @@ version ignores them rather than reading them.
 
 import pytest
 
+from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 from app.ingestion.slack_parser import SlackParser
 
 CHANNEL = "C0123456789"
@@ -397,7 +398,16 @@ def test_edit_pin_and_client_metadata_are_ignored(parser: SlackParser) -> None:
         "message_ts",
         "author_id",
         "text",
+        # Declared by PermissionScope, filled by the ingestion service. They
+        # come from the request that started the run, never from Slack, which
+        # is what the next three lines check.
+        "team_id",
+        "department_id",
+        "access_scope",
     }
+    assert message.team_id is None
+    assert message.department_id is None
+    assert message.access_scope is ResourceAccessScope.TEAM
 
 
 # ------------------------------------------------------------------ the ts

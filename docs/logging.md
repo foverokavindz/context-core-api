@@ -198,3 +198,41 @@ INFO  Embedding skipped at the caller's request        the request set "embed": 
 INFO  No embedder is configured; chunks have no vectors  a service built without one
                                                        (nothing at all)  the run produced no chunks
 ```
+
+## The common ingestion endpoint
+
+`POST /api/v1/ingestData/{external_source}` wraps one of the four runs above in
+four lines of its own — two before it and two after:
+
+```
+INFO  app.services.ingestion_service: Ingestion accepted for GITHUB source 476fca4f-… (TrackIt API)
+INFO  app.background.pipeline.ingestion_pipeline: Ingestion run starting for GITHUB source 476fca4f-… (TrackIt API)
+   ... the whole GitHub run above, unchanged ...
+INFO  app.background.pipeline.ingestion_pipeline: Ingestion run finished for GITHUB source 476fca4f-…: 97 resource files, 441 chunks
+INFO  app.background.pipeline.ingestion_pipeline: Ingestion run written to github_476fca4f-….json
+```
+
+Three things worth knowing:
+
+- **"Accepted" and "starting" are two different moments**, and the gap between
+  them is the response being sent. A run that never logs "starting" was accepted
+  and then never scheduled, which is a different fault from one that starts and
+  fails.
+- **Every line names the source id**, which is the same id the caller was handed
+  and the same one in the run file's name. Interleaved runs stay attributable.
+- **The display name is logged; the config and the token are not.** The name is
+  something a person chose for this connection, so it is safe and it is what
+  makes a log line readable. `config` can carry a site URL with an account's
+  organisation in it, and the token is a credential — see
+  [security.md](security.md).
+
+A failed run logs one line instead of the last two, and the exception type is
+named rather than its message:
+
+```
+ERROR app.background.pipeline.ingestion_pipeline: Ingestion run failed for GITHUB source 476fca4f-…: RepositoryNotFoundError
+INFO  app.background.pipeline.ingestion_pipeline: Ingestion run written to github_476fca4f-….json
+```
+
+The message the caller would have seen goes into the run file rather than the
+log, because that is where the rest of the run already is.

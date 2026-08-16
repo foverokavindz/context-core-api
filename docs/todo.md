@@ -56,10 +56,24 @@ is checked against `status`. A `RUNNING` run with a `completed_at` is a valid ro
 
 ## Credentials
 
+**The token is on the source, in plain text.** `POST /api/v1/ingestData/{external_source}`
+writes `external_data_sources.token` and leaves `credential_id` NULL — no
+`SourceCredentials` row is created at all. That is the shortcut this phase took
+to get ingestion running end to end, and it owes two things: moving the secret
+into a credential row, and encrypting it there. Until both are paid, a database
+dump contains usable tokens.
+
+Moving it is not a rename. One credential serves several sources, so the values
+do not map one to one — a team connecting a second repository with the same
+GitHub token should reach the row that already exists rather than write a second
+copy of the secret, and deciding when two tokens are "the same credential" is
+the part that needs thinking about rather than typing.
+
 **Encryption.** `encrypted_secret` holds ciphertext and nothing in this version
 produces any. A credential service owns encrypting on write and decrypting on
 use, and owns never letting either reach a log or a response — see
-[security.md](security.md).
+[security.md](security.md). It owns `external_data_sources.token` too, once that
+column's contents move.
 
 **Secret manager.** `secret_reference` is the alternative: a Vault path, an AWS
 Secrets Manager ARN, whatever the deployment uses. Which of the two a deployment

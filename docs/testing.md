@@ -6,7 +6,7 @@
 pytest app/tests -v
 ```
 
-1,079 tests, no network access and no credentials required. PyGithub is replaced
+1,192 tests, no network access and no credentials required. PyGithub is replaced
 with fakes, and Jira, Confluence and Slack with an `httpx.MockTransport`, all of
 which record which API calls were made — which is how the suite proves that
 ignored files are never downloaded, that the Jira issue cap shrinks the *request*
@@ -39,6 +39,7 @@ response, a log or an error message.
 | `test_slack_chunker.py`          | the chunk is the message text alone, ids kept out of it, one-message-one-chunk                                          |
 | `test_slack_ingestion_service.py`| the real Slack pipeline end to end with only the network faked; the funnel gap, and the connector closed before parsing  |
 | `test_slack_api.py`              | request validation, sampling vs truncation vs filtering, HTTP status mapping, token never echoed                        |
+| `test_ingestion_controller.py`   | the common endpoint: source resolution, the per-source config checks, what the ExternalDataSource is built from, and — running the pipeline directly — that permissions reach every item and chunk and that the token reaches neither the response nor the run file |
 
 The Jira, Confluence and Slack connector tests drive a **real** `httpx.Client`
 through a mock transport, so base-URL joining, the auth header and query-string

@@ -231,7 +231,7 @@ def test_response_samples_rather_than_returning_everything() -> None:
 
     assert body["accepted_files"] == 50
     assert body["generated_chunks"] == 100
-    assert len(body["files"]) == SAMPLE_FILES_LIMIT
+    assert len(body["resource_files"]) == SAMPLE_FILES_LIMIT
     assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
@@ -258,7 +258,7 @@ def test_full_returns_every_file_and_chunk() -> None:
         json={"token": TOKEN, "repository": "my-org/backend", "full": True},
     ).json()
 
-    assert len(body["files"]) == 50
+    assert len(body["resource_files"]) == 50
     assert len(body["chunks"]) == 100
     assert body["accepted_files"] == 50
     assert body["generated_chunks"] == 100
@@ -286,7 +286,7 @@ def test_sampling_is_still_the_default() -> None:
         json={"token": TOKEN, "repository": "my-org/backend"},
     ).json()
 
-    assert len(body["files"]) == SAMPLE_FILES_LIMIT
+    assert len(body["resource_files"]) == SAMPLE_FILES_LIMIT
     assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 

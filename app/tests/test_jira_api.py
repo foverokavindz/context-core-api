@@ -172,10 +172,10 @@ def test_issues_carry_the_relationships() -> None:
     """The main reason to look at this response: did linking actually work."""
     body = client_with(FakeJiraService()).post(ENDPOINT, json=payload()).json()
 
-    assert body["issues"][0]["key"] == "TRACK-0"
-    assert body["issues"][0]["parent_key"] == "TRACK-10"
-    assert body["issues"][0]["description"] == "A description."
-    assert "child_issues" in body["issues"][0]
+    assert body["resource_files"][0]["key"] == "TRACK-0"
+    assert body["resource_files"][0]["parent_key"] == "TRACK-10"
+    assert body["resource_files"][0]["description"] == "A description."
+    assert "child_issues" in body["resource_files"][0]
 
 
 def test_sample_chunks_carry_the_issue_detail() -> None:
@@ -207,7 +207,7 @@ def test_the_response_samples_rather_than_returning_everything() -> None:
 
     assert body["retrieved_issues"] == 40
     assert body["generated_chunks"] == 40
-    assert len(body["issues"]) == 10
+    assert len(body["resource_files"]) == 10
     assert len(body["sample_chunks"]) == 20
 
 
@@ -216,7 +216,7 @@ def test_full_returns_every_issue_and_chunk() -> None:
 
     body = client_with(service).post(ENDPOINT, json=payload(full=True)).json()
 
-    assert len(body["issues"]) == 40
+    assert len(body["resource_files"]) == 40
     assert len(body["sample_chunks"]) == 40
 
 
@@ -261,7 +261,7 @@ def test_sampling_does_not_set_truncated() -> None:
 
     body = client_with(service).post(ENDPOINT, json=payload()).json()
 
-    assert len(body["issues"]) == 10
+    assert len(body["resource_files"]) == 10
     assert body["truncated"] is False
 
 

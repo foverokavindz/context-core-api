@@ -11,12 +11,15 @@ chunks that a later phase can embed.
 | --- | --- |
 | [getting-started.md](getting-started.md) | Install, run the API, run the tests |
 | [architecture.md](architecture.md) | Module layout, the boundaries each pipeline stops at, why the four are kept separate |
+| [ingestion-endpoint.md](ingestion-endpoint.md) | `POST /api/v1/ingestData/{source}` — the one endpoint all four sources share, what it records, and what runs after it answers |
 
 ## The four sources
 
 Each page is self-contained: how to call the endpoint, what gets fetched, how
 the source format is flattened, how it is chunked, the error statuses, and a
-checklist for verifying it against a real account.
+checklist for verifying it against a real account. These four endpoints answer
+with a whole run inline; the common endpoint above answers immediately and
+ingests afterwards.
 
 | Page | Endpoint | Ends in |
 | --- | --- | --- |
@@ -31,7 +34,7 @@ checklist for verifying it against a real account.
 | --- | --- |
 | [logging.md](logging.md) | What a run prints, and why log volume tracks the unit that costs a round trip |
 | [security.md](security.md) | How tokens are held, and what never reaches a log or a response |
-| [testing.md](testing.md) | The 1,079-test suite and what each module covers |
+| [testing.md](testing.md) | The 1,192-test suite and what each module covers |
 
 ## Beyond ingestion
 

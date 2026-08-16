@@ -64,7 +64,10 @@ dev = [
 packages = [
     "app",
     "app.api",
+    "app.background",
+    "app.background.pipeline",
     "app.connectors",
+    "app.controllers",
     "app.core",
     "app.entities",
     "app.entities.chat",
@@ -77,6 +80,7 @@ packages = [
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",
+    "app.services",
 ]
 
 [tool.pytest.ini_options]

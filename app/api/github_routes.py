@@ -63,12 +63,12 @@ def ingest_repository(request: GitHubIngestRequest, service: GitHubIngestionServ
         max_files=request.max_files,
         embed=request.embed,
     )
-    return _to_response(
+    return to_response(
         result, full=request.full, include_embeddings=request.include_embeddings
     )
 
 
-def _to_response(
+def to_response(
     result: IngestionResult,
     *,
     full: bool = False,
@@ -81,6 +81,10 @@ def _to_response(
     chunk's vector is shown whole or as its first few values. Sampled by default
     because a real repository produces hundreds of chunks and the payload gets
     unwieldy fast.
+
+    Public rather than private because the background pipeline serialises its
+    run through this same projection - one definition of what a GitHub run looks
+    like as JSON, whether it arrived over HTTP or was written to a file.
     """
     file_limit = None if full else SAMPLE_FILES_LIMIT
     chunk_limit = None if full else SAMPLE_CHUNKS_LIMIT
@@ -102,8 +106,15 @@ def _to_response(
             embedding_dimensions=result.embedding_dimensions,
             truncated_inputs=result.embedding_truncated_inputs,
         ),
-        files=[
-            FileSummary(path=file.path, language=file.language, size=file.size)
+        resource_files=[
+            FileSummary(
+                path=file.path,
+                language=file.language,
+                size=file.size,
+                team_id=file.team_id,
+                department_id=file.department_id,
+                access_scope=file.access_scope,
+            )
             for file in result.files[:file_limit]
         ],
         chunks=[
@@ -137,6 +148,9 @@ def _to_sample(
         # instead of borrowing the width of the ones that did not.
         embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
         embedding_model=chunk.embedding_model,
+        team_id=chunk.team_id,
+        department_id=chunk.department_id,
+        access_scope=chunk.access_scope,
     )
 
 

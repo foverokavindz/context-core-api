@@ -450,6 +450,7 @@ that reads a team's name.
 | `source_type` | `source_type` | NOT NULL |
 | `status` | `source_status` | NOT NULL, default `ACTIVE` |
 | `config` | `JSONB` | nullable |
+| `token` | `VARCHAR(2048)` | nullable, **plain text** — see below |
 | `last_synced_at` | `TIMESTAMPTZ` | nullable |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | |
 
@@ -489,7 +490,26 @@ Four connectors with four different notions of "where" would otherwise mean a
 dozen columns, all but three of them NULL on any given row, and a fifth connector
 would mean a migration. The cost is that the database cannot check the shape of a
 config, which is the connector's job anyway. **No secret goes in here** — that is
-what the credential row is for.
+what `token` one row down is for, and what the credential row is for after that.
+
+**`token` is a deliberate shortcut and the one place this schema knowingly holds
+a secret badly.** It is the access token a source authenticates with, written by
+`POST /api/v1/ingestData/{external_source}` so a later sync can re-run an
+ingestion without asking the user for it again. It is stored as sent — not
+hashed, which would make it useless, and not encrypted, which is the thing that
+has not been built.
+
+The right home for it is a `source_credentials` row and `encrypted_secret`, and
+that is where it goes. Connecting a source is three writes and a service that
+owns all of them; this phase does the first one, leaves `credential_id` NULL, and
+puts the token where the ingestion path can reach it. Both halves of that debt
+are in [todo.md](todo.md).
+
+What the shortcut does *not* do is loosen the rule about where a secret may
+appear. `token` is never logged, never returned by any endpoint, and never
+written into a run file — the run file's source block is assembled field by
+field rather than dumped, precisely so this column cannot ride along by
+accident. See [security.md](security.md).
 
 **`last_synced_at` means the last ingestion that *completed*.** Nothing in this
 entity writes it: no ORM default, no `onupdate`, no event listener. A future

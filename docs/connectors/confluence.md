@@ -246,7 +246,7 @@ false`, which only shortens the *response*. Sampling never sets `truncated`.
 3. Check that the resolved space is the one you meant: `space_key`, `space_id`
    and `space_name` are all echoed back.
 4. Check that `retrieved_pages == parsed_pages == generated_chunks`.
-5. Check that **every** entry in `pages` carries the `space_key` you asked for,
+5. Check that **every** entry in `resource_files` carries the `space_key` you asked for,
    and that no page from another space appears.
 6. Check that page content reads as plain text — no `<p>`, no `<h1>`, no
    `ac:structured-macro` anywhere in the response.

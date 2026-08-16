@@ -13,6 +13,7 @@ one message in, one chunk out, however long or short the message is.
 
 import pytest
 
+from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 from app.ingestion.slack_chunker import SlackChunker
 from app.models.slack_message import SlackMessage
 
@@ -140,9 +141,17 @@ def test_the_chunk_carries_no_thread_reaction_or_file_field(
         # never touches them, which is what the next two lines check.
         "embedding",
         "embedding_model",
+        # Declared by PermissionScope, filled by the ingestion service. The
+        # chunker never touches these either.
+        "team_id",
+        "department_id",
+        "access_scope",
     }
     assert chunk.embedding is None
     assert chunk.embedding_model is None
+    assert chunk.team_id is None
+    assert chunk.department_id is None
+    assert chunk.access_scope is ResourceAccessScope.TEAM
 
 
 # --------------------------------------------------- one message, one chunk

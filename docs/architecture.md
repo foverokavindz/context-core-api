@@ -22,6 +22,12 @@ app/
 │   ├── jira_routes.py            the Jira endpoint (thin)
 │   ├── confluence_routes.py      the Confluence endpoint (thin)
 │   └── slack_routes.py           the Slack endpoint (thin)
+├── controllers/
+│   └── ingestion_controller.py   the one endpoint all four sources share
+├── services/
+│   └── ingestion_service.py      records the connection, starts the run
+├── background/pipeline/
+│   └── ingestion_pipeline.py     runs it afterwards, writes the run file
 ├── connectors/
 │   ├── base.py                   BaseSourceConnector, SourceSnapshot
 │   ├── github_connector.py       the only module that imports PyGithub
@@ -62,7 +68,10 @@ app/
 │   ├── slack_request.py          SlackIngestRequest
 │   ├── slack_message.py          SlackMessage  <- the Slack boundary
 │   ├── slack_chunk.py            SlackChunk
-│   └── slack_response.py         Slack response DTOs + limits
+│   ├── slack_response.py         Slack response DTOs + limits
+│   ├── permission_scope.py       PermissionScope  <- the one shared mixin
+│   ├── ingest_data_request.py    IngestDataRequest + REQUIRED_CONFIG_KEYS
+│   └── ingest_data_response.py   IngestStartedResponse
 ├── entities/                     the database layer — see entities.md
 │   ├── base.py                   Base, UUIDMixin, TimestampMixin
 │   └── organization/             departments, job titles, users
@@ -72,9 +81,72 @@ app/
 
 `models/` and `entities/` are not two names for the same thing. Everything in
 `models/` is a pydantic DTO that lives for the length of one request; everything
-in `entities/` is a table. No pipeline imports `entities/`, and nothing in it is
-wired into `main.py` — it is the first stone of the application that will be
-built on top of ingestion, not part of ingestion itself.
+in `entities/` is a table. No pipeline imports `entities/` for a *table*, and
+nothing in it is wired into a connector — it is the first stone of the
+application that will be built on top of ingestion, not part of ingestion
+itself.
+
+Two of its *enums* are now imported by `models/` and by the common ingestion
+path: `SourceType` and `ResourceAccessScope`. An enum is not a table, and
+copying either into `models/` would create a second list of the same values to
+keep in step. `ExternalDataSource` is imported too, by the service and the
+pipeline — and constructed, not persisted, because there is still no engine.
+
+## The common ingestion path
+
+The four endpoints above each run a whole pipeline synchronously and hand the
+result back inline, which is what makes them useful for debugging one connector
+and useless against a real repository — a few hundred files take minutes, which
+is longer than an HTTP client will wait.
+
+`POST /api/v1/ingestData/{external_source}` is the other shape. One body for all
+four sources, with the per-connector part in `config`, and three stages that run
+at two different times:
+
+```
+controller  ->  service  ->  202 Accepted
+   resolve      record the       (the caller is done here)
+   the path     connection
+   validate     schedule
+   config       the run
+                     |
+                     `-> background pipeline
+                            the source's own ingestion service, unchanged
+                            connector -> parser -> chunker -> embedder
+                            permission fields onto every item and chunk
+                            -> app/data/runs/<source>_<id>.json
+```
+
+The split is the point. The controller knows which sources exist and what each
+one's config must contain; the service knows what a connection *is*; the
+pipeline knows which of the four services to run. None of them knows what a
+chunk is, and none of the four pipelines learned anything about the other three.
+
+`ingestion_pipeline.py` is the only module that imports all four ingestion
+services, and it does so in one `if`/`elif` rather than a registry — with four
+branches, a lookup table would hide the only thing worth seeing, which is that
+each branch makes the same call the source's own endpoint already makes.
+
+Two things this path adds that the four endpoints do not have:
+
+**A record of the run.** An `ExternalDataSource` is built from the request, with
+the token on it. Nothing persists it — there is no session — so it is carried
+into the pipeline and written into the run file. The `TODO` marking where
+`session.add()` goes is in `services/ingestion_service.py`, and the reasons the
+credential row is skipped for now are in [todo.md](todo.md).
+
+**Permissions.** `PermissionScope` is the second thing after `embed_into` to
+earn a place shared across all four sources, and it earned it the same way:
+`resources` and `chunks` both carry `access_scope`, `team_id` and
+`department_id`, the four item models and four chunk models all needed the same
+three fields, and there was nothing to learn from seeing them written eight
+times. The pipeline stamps them in one place after the chunker, which is also
+the only way a chunk's copy cannot drift from its resource's.
+
+The run file is scaffolding, not a feature. It exists so a run can be inspected
+before there is a database to inspect instead, which is why the response does
+not name it — a caller gets the `external_data_source_id` and nothing about
+where the server put anything.
 
 ## The boundaries that matter
 

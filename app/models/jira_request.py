@@ -25,19 +25,6 @@ EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
 class JiraIngestRequest(BaseModel):
-    """A request to ingest the Epics and Stories of one Jira project.
-
-    The token is a SecretStr rather than a plain str on purpose. Pydantic prints
-    it as `**********` in every repr, log line and `model_dump()`, so it cannot
-    leak through an accidental log statement or by being echoed into a response.
-    `.get_secret_value()` is called in exactly one place - where the Jira HTTP
-    client is constructed - and the value is never stored anywhere.
-
-    Unlike GitHubIngestRequest this model forbids unknown fields. The API
-    deliberately does not accept a JQL query from the caller; pydantic's default
-    would silently ignore a `jql` key rather than rejecting it, which is the
-    wrong answer for a restriction that exists for security reasons.
-    """
 
     model_config = ConfigDict(extra="forbid")
 
