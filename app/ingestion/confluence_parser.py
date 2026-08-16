@@ -57,6 +57,8 @@ class ConfluenceParser:
         if page_id is None:
             raise ValueError("Confluence page payload has no id.")
 
+        version_number = _version_number(raw.get("version"))
+
         return ConfluencePage(
             page_id=page_id,
             # The page reports a spaceId too, but the resolved space is what
@@ -68,8 +70,11 @@ class ConfluenceParser:
             title=_text(raw.get("title")),
             parent_id=_identifier(raw.get("parentId")),
             status=_optional_text(raw.get("status")),
-            version_number=_version_number(raw.get("version")),
+            version_number=version_number,
             content=_body_text(raw.get("body")),
+
+            external_id=page_id,
+            version_key=None if version_number is None else str(version_number),
         )
 
     def parse_many(

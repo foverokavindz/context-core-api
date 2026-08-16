@@ -68,6 +68,8 @@ def make_page(page_id: str = "111", *, title: str = "Authentication") -> Conflue
         status="current",
         version_number=7,
         content="TrackIt uses JWT authentication.",
+        external_id=page_id,
+        version_key="7",
     )
 
 

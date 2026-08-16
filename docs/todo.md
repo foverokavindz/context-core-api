@@ -154,6 +154,29 @@ changed one replaces its chunks, renumbers them, or writes a new resource
 version. `SyncRun.chunks_updated` and `chunks_deleted` are counters waiting on
 that decision.
 
+**Deleting a resource with its chunks is a service's job, and no longer a
+cascade's.** Chunks name their resource by `(external_data_source_id,
+external_id)` rather than by a foreign key to `resources.id`, so there is no
+`Resource.chunks` relationship and nothing for `cascade="all, delete-orphan"` to
+hang off. The two `DELETE`s are in
+[entities.md](entities.md#deleting-a-resource-and-its-chunks); what is owed is a
+service that always issues both, in order, in one transaction. A resource deleted
+on its own leaves its chunks pointing at a row that is gone, and nothing refuses
+it.
+
+**Document-origin chunks are linked to nothing.** A resource created from an
+uploaded document has `external_data_source_id` and `external_id` both `NULL` —
+`single_origin` guarantees the first — so a chunk of one has nothing to copy into
+either column. Two consequences, and both are silent: a composite foreign key is
+satisfied under `MATCH SIMPLE` the moment *either* column is `NULL`, so the chunk
+passes the constraint while referencing no row at all; and because SQL treats
+NULLs as distinct, `UNIQUE(external_data_source_id, external_id, chunk_index)`
+stops constraining it, so the same `chunk_index` can be written any number of
+times. Nothing uploads a document yet, so no such row exists. Whoever adds
+document ingestion has to answer this first — either a synthetic `external_id` on
+document resources, or a nullable `document_id` on `chunks` mirroring the
+dual-origin shape `resources` already has, with a check constraint to match.
+
 **The `vector` extension and its index.** `chunks.embedding` compiles to
 `vector(1536)` but a real PostgreSQL server needs `CREATE EXTENSION vector` before
 that table can be created, and an `ivfflat` or `hnsw` index before a similarity
@@ -199,14 +222,14 @@ citations, which is the RAG path.
 up. The unique constraint stops two sources at position 1; nothing requires an
 answer's citations to run 1, 2, 3 with nothing missing.
 
-**Deleting a cited chunk or resource is refused, including through a cascade.**
-`Resource.chunks` is `cascade="all, delete-orphan"`, so deleting a resource
-through a session issues a `DELETE` for its chunks — and the database refuses that
-`DELETE` while a citation points at one. A re-ingestion that replaces the chunks
-of a resource somebody has already asked about hits this. Whether the answer is to
-null the citation's `chunk_id`, to copy the cited text onto the citation, or to
-keep superseded chunks is open, and it is the largest undecided question in this
-group. There is deliberately no second cascade — see
+**Deleting a cited chunk or resource is refused.** Re-ingestion replaces a
+resource's chunks by deleting them, and the database refuses that `DELETE` while a
+citation points at one. A re-ingestion that replaces the chunks of a resource
+somebody has already asked about hits this. Whether the answer is to null the
+citation's `chunk_id`, to copy the cited text onto the citation, or to keep
+superseded chunks is open, and it is the largest undecided question in this group.
+This does not depend on there being a cascade — there is none anywhere in the
+schema — only on the citation's own foreign keys; see
 [entities.md](entities.md#citations).
 
 **Message order is `created_at` and nothing more.** Two messages written in the

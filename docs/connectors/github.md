@@ -82,7 +82,7 @@ in the three fields, **Execute**.
 			"repository": "my-org/backend",
 			"branch": "main",
 			"commit_sha": "abc123",
-			"path": "src/auth/AuthService.ts",
+			"file_path": "src/auth/AuthService.ts",
 			"file_name": "AuthService.ts",
 			"extension": ".ts",
 			"file_sha": "9f2c1ab",
@@ -90,7 +90,12 @@ in the three fields, **Execute**.
 			"size": 2450,
 			"team_id": null,
 			"department_id": null,
-			"access_scope": "TEAM"
+			"access_scope": "TEAM",
+
+			"external_id": "src/auth/AuthService.ts",
+			"title": "AuthService.ts",
+			"version_key": "9f2c1ab",
+			"resource_type": "GITHUB_FILE"
 		}
 	],
 
@@ -139,12 +144,22 @@ vector in `embedding`. There is no preview form of either.
 > They are also reported once at the top level, and for a single-branch run the
 > values are identical — the repetition is so one entry lifted out of either
 > list still says which commit of which branch it was read from.
-> `file_sha` is the blob SHA: it is what tells a re-ingestion that a file's
-> contents changed, and it is the natural `version_key` for the `resources` row.
+
+> **The last four fields are the same values again, under the names the
+> `resources` table uses.** `external_id` is the file path, `title` the file
+> name, `version_key` the blob SHA — each a copy of the field above it rather
+> than anything new. They are there so that whatever writes the row does not
+> have to invent the mapping: a GitHub reader wants `file_path` and `file_sha`,
+> the table wants `external_id` and `version_key`, and translating between them
+> belongs at the point where both names are still obviously about the same file.
+> `external_id` is also the key its chunks use to find it — see
+> [../entities.md](../entities.md#chunks).
 
 > **`resource_files` is the same key on all four endpoints.** A GitHub file, a
 > Jira issue, a Confluence page and a Slack message all arrive under it — each
-> one becomes a `resources` row, which is what the name is for.
+> one becomes a `resources` row, which is what the name is for, and all four now
+> carry `external_id`, `title`, `version_key` and `resource_type` for the same
+> reason.
 
 > **The three permission fields are null here, and that is correct.** This
 > endpoint takes a token and a repository and knows nothing about a team, so

@@ -36,6 +36,8 @@ def make_issue(
         status=status,
         parent_key=parent_key,
         child_issues=child_issues or [],
+        external_id=key,
+        title=summary,
     )
 
 

@@ -142,6 +142,12 @@ came from a Confluence page or a PDF somebody uploaded is a fact about the
 resource, not a different retrieval path — `resources` and `chunks` do not care
 which arrow reached them.
 
+The second arrow in each chain is worth a footnote: it is not a `resource_id` on
+`chunks`. A chunk names its resource by `(external_data_source_id, external_id)`,
+which is a real foreign key for the first chain and reaches nothing at all for the
+second, because a document-origin resource has both columns `NULL`. See
+[`chunks`](#chunks) and [todo.md](todo.md).
+
 The other thing a user owns is their conversations, and those close the loop back
 onto the corpus:
 
@@ -173,7 +179,6 @@ would lose which answer cited what — the one thing the table exists to record.
 | `ExternalDataSource.resources` | `Resource.external_data_source` |
 | `Team.resources` | `Resource.team` |
 | `Department.resources` | `Resource.department` |
-| `Resource.chunks` | `Chunk.resource` |
 | `Team.chunks` | `Chunk.team` |
 | `Department.chunks` | `Chunk.department` |
 | `User.documents` | `Document.uploader` |
@@ -198,20 +203,21 @@ becomes one resource and a hundred chunks, which is what chunks are for.
 it does not read `ChatSession.chat_session_messages`. `Citation.message` is the
 same trim on the other side.
 
-**One relationship carries a delete cascade, and it is `Resource.chunks`.**
-Everywhere else the answer is no — not even `team_members`, which is a join table
-and the place a cascade would look most routine. Deleting a department must never
+**No relationship carries a delete cascade.** Deleting a department must never
 take its users with it; people outlive reorganisations. The foreign keys are left
 at the database default (`NO ACTION`), so rows still pointing at a parent stop its
 deletion and a human decides where they go. Reassignment will be an explicit
 operation in the service layer.
 
-Chunks are the exception because they are not independent facts. A chunk is a
-slice of its resource's text and exists only to be embedded; re-ingesting a
-resource replaces every one of them, and a chunk whose resource is gone is not a
-row anybody has to decide about — it is debris. `cascade="all, delete-orphan"` on
-`Resource.chunks` says exactly that, and it is the only place in this schema that
-says it. See [`chunks`](#chunks) for what the cascade does and does not cover.
+Chunks used to be the exception, and are no longer. A chunk is still not an
+independent fact — it is a slice of its resource's text, re-ingestion replaces
+every one of them, and a chunk whose resource is gone is debris rather than a row
+anybody has to decide about. What changed is that a chunk no longer *has* a
+`resource_id`: it names its resource by the same `(external_data_source_id,
+external_id)` pair `resources` declares unique, so there is no relationship
+attribute for a session-level cascade to hang off. Deleting a resource together
+with its chunks is now an explicit two-statement operation in the service layer —
+see [`chunks`](#chunks).
 
 Deleting a `Team` therefore fails while it still has members, rather than
 quietly emptying `team_members` — its `team_id` is `NOT NULL`, so SQLAlchemy's
@@ -233,14 +239,13 @@ that is a workflow decision rather than a weaker rule — see
 [`source_credentials`](#source_credentials) below.
 
 **Citations are the case where the rule looks wrong and is not.** A citation is
-derived, the way a chunk is, so a second cascade would be the obvious move — and
-deleting a chat message that has citations is refused instead. The difference is
-what the row is *for*: a chunk exists to be embedded and re-ingestion replaces it,
-while a citation is the record that an answer was built on a particular piece of
-text. Losing it silently to a delete somewhere else would leave an answer that
-claims sources it can no longer name. `Resource.chunks` stays the only cascade in
-the schema; deleting a message, a chunk or a resource that has been cited is a
-decision, and it is in [todo.md](todo.md).
+derived, the way a chunk is, so a cascade would be the obvious move — and deleting
+a chat message that has citations is refused instead. The difference is what the
+row is *for*: a chunk exists to be embedded and re-ingestion replaces it, while a
+citation is the record that an answer was built on a particular piece of text.
+Losing it silently to a delete somewhere else would leave an answer that claims
+sources it can no longer name. Deleting a message, a chunk or a resource that has
+been cited is a decision, and it is in [todo.md](todo.md).
 
 ## `departments`
 
@@ -733,7 +738,8 @@ exist. It is in [todo.md](todo.md) with the rest.
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | `UUID` | primary key |
-| `resource_id` | `UUID` | → `resources.id`, NOT NULL |
+| `external_data_source_id` | `UUID` | nullable, half of the key naming this chunk's resource |
+| `external_id` | `VARCHAR(512)` | nullable, the other half |
 | `chunk_index` | `INTEGER` | NOT NULL, unique *within* the resource |
 | `chunk_type` | `chunk_type` | nullable |
 | `content` | `TEXT` | NOT NULL |
@@ -800,9 +806,31 @@ resource — `{"symbol_name": "login", "parent_symbol": "AuthService", "start_li
 25, "end_line": 62}`. The repository and branch are already on the resource, and
 copying them onto every chunk would be a second place for them to be wrong.
 
-**`UNIQUE(resource_id, chunk_index)`** means a resource cannot hold the same
-position twice, so a re-run that writes chunk 3 again collides instead of
-quietly duplicating it.
+### How a chunk names its resource
+
+`(external_data_source_id, external_id)`, tied to `resources` by a composite
+`FOREIGN KEY` — the pair that table already declares `UNIQUE`. There is no
+`resource_id` column.
+
+The reason is what a run knows and when. `resources.id` is generated at insert,
+so linking by it means writing every resource, reading its id back, and only then
+writing chunks. A file's path is known while it is still being parsed, so keying
+on it lets a run build every resource row and every chunk row in memory and insert
+both without a round trip in between.
+
+**`UNIQUE(external_data_source_id, external_id, chunk_index)`** means a resource
+cannot hold the same position twice, so a re-run that writes chunk 3 again
+collides instead of quietly duplicating it. It takes three columns rather than
+two for the same reason `resources` scopes its own uniqueness to the source:
+`external_id` means nothing on its own, and two repositories each holding a
+`README.md` would otherwise collide at every index.
+
+**Neither constraint reaches a document-origin chunk.** An uploaded document's
+resource has both columns `NULL`, and a composite foreign key is satisfied under
+`MATCH SIMPLE` the moment either column is — so such a chunk passes the constraint
+while pointing at nothing, and because NULLs are distinct, its `chunk_index` is
+not unique either. Nothing uploads a document yet, so nothing writes such a row;
+it is in [todo.md](todo.md) as work owed rather than left to be discovered.
 
 ### Why the permission columns are here twice
 
@@ -839,28 +867,37 @@ That is the same reasoning that keeps `last_synced_at` out of an `onupdate` and
 `Team.created_by_user_id` from implying a membership. The drift it allows is in
 [todo.md](todo.md).
 
-### What the cascade covers
+### Deleting a resource and its chunks
 
-`Resource.chunks` is `cascade="all, delete-orphan"`, and it is **a SQLAlchemy
-session behaviour, not `ON DELETE CASCADE`**. The foreign key itself is left at
-`NO ACTION` like every other one here.
+There is no cascade. `resources` and `chunks` are joined by a composite key rather
+than by a relationship, so there is no attribute for SQLAlchemy to walk and
+`session.delete(resource)` does nothing to the chunk rows.
 
-The difference matters. Deleting a resource *through a session* issues the
-`DELETE` for its chunks first and both go. A raw `DELETE FROM resources` in psql
-is still refused by the database while chunks point at it — which is the safe way
-round: the convenience exists for the code that owns these rows, and a hand-written
-statement gets no help it did not ask for.
+Deleting both is two statements, in this order, and belongs to whatever service
+owns re-ingestion:
 
-Deleting a chunk never touches its resource; the relationship only runs one way.
-And nothing above resource is affected — deleting a `Team`, a `Department` or an
+```sql
+DELETE FROM chunks
+ WHERE external_data_source_id = :source AND external_id = :external_id;
+DELETE FROM resources
+ WHERE external_data_source_id = :source AND external_id = :external_id;
+```
+
+That is what re-ingestion was always going to issue anyway — replacing a
+resource's chunks means deleting them by key, not loading a resource in order to
+cascade off it. What was implicit is now written down, and the cost is that
+nothing enforces the order: a resource deleted on its own leaves its chunks
+behind, pointing at a row that is gone.
+
+Nothing above resource is affected — deleting a `Team`, a `Department` or an
 `ExternalDataSource` is still refused while resources reference them, so no
 disconnect or reorganisation can quietly erase a corpus.
 
-One thing the cascade does **not** reach is citations. A chunk that has been cited
-cannot be deleted, and that includes being deleted as part of its resource's
-cascade — the `DELETE` for the chunks is issued and the database refuses it. A
+**Citations still refuse.** A chunk that has been cited cannot be deleted, and the
+first statement above is refused by the database while a citation points at one.
+That behaviour did not depend on the cascade and does not change here. A
 re-ingestion that replaces the chunks of a resource somebody has already asked
-about will hit this, and it is a real decision rather than an oversight; see
+about will hit it, and it is a real decision rather than an oversight; see
 [todo.md](todo.md).
 
 ## `chat_sessions`
@@ -943,8 +980,8 @@ answer cited what, which is the only thing this table records. A `USER` row simp
 has none, and so does an `ASSISTANT` row that answered without retrieving anything —
 both are real states rather than missing data.
 
-**Both `chunk_id` and `resource_id` are stored, and the second is reachable
-through the first.** That is deliberate. The two answer different questions:
+**Both `chunk_id` and `resource_id` are stored.** That is deliberate. The two
+answer different questions:
 
 ```
 chunk_id     which exact retrieved text supported this answer
@@ -952,11 +989,16 @@ resource_id  which file, issue, page, message or document it came from
 ```
 
 Rendering a source list is the common read and it needs the second — a file path,
-an issue key, a document title. Making it join through `chunks` to find that out
-would put a join in the path of every answer, to recover something already known
-at the moment the citation was written. The chunk stays there because "the policy
-says so" and "*this paragraph* says so" are not the same claim, and only the chunk
-can make the stronger one.
+an issue key, a document title. Storing it keeps a join out of the path of every
+answer, to recover something already known at the moment the citation was written.
+The chunk stays there because "the policy says so" and "*this paragraph* says so"
+are not the same claim, and only the chunk can make the stronger one.
+
+This column used to be a convenience — the resource was reachable through the
+chunk, and storing it merely saved the hop. Since a chunk names its resource by
+`(external_data_source_id, external_id)` rather than by id, there is no
+`Chunk.resource` to walk and this is the only path from a citation to its
+resource. It was worth having when it was redundant; it is load-bearing now.
 
 **`UNIQUE(chat_message_id, citation_order)`** means one answer cannot hold two
 sources at the same position, so `[1]` and `[2]` survive a re-read rather than
@@ -1265,7 +1307,9 @@ ix_sync_runs_external_data_source_id       INDEX
 ix_sync_runs_status                        INDEX
 
 uq_resources_external_data_source_id_external_id  UNIQUE (external_data_source_id, external_id)
-uq_chunks_resource_id_chunk_index                 UNIQUE (resource_id, chunk_index)
+uq_chunks_external_data_source_id_external_id_chunk_index  UNIQUE (external_data_source_id, external_id, chunk_index)
+fk_chunks_resource                         FOREIGN KEY (external_data_source_id, external_id)
+                                             REFERENCES resources (external_data_source_id, external_id)
 ck_resources_single_origin                 CHECK ((external_data_source_id IS NULL) <> (document_id IS NULL))
 ix_resources_document_id                   UNIQUE INDEX
 ix_resources_resource_type                 INDEX
@@ -1311,15 +1355,21 @@ The columns that get one for the same reason: `teams.created_by_user_id`, for
 treats NULLs as distinct from one another, so `UNIQUE` already allows any number
 of users without a username while still rejecting a duplicate of one that is set.
 
-**The knowledge group brings the rule back**, and the two omissions it produces are
-the ones most likely to look like mistakes. `resources.external_data_source_id`
-has no index of its own and neither does `chunks.resource_id` — each is the
-leading column of the composite unique constraint above, which already builds that
-btree and answers "every resource from this source" and "every chunk of this
-resource" with it.
+**The knowledge group brings the rule back**, and the omissions it produces are
+the ones most likely to look like mistakes. Neither
+`resources.external_data_source_id` nor `chunks.external_data_source_id` has an
+index of its own — each leads a composite unique constraint above, which already
+builds that btree and answers "every resource from this source" and "every chunk
+from this source" with it.
 
-`resources.external_id` *does* get one, because it is the constraint's **second**
-column and a leading-column index cannot serve it. That index is what a
+`chunks.external_id` has none either, and that is the subtler case. "Every chunk
+of this resource" is a lookup on `(external_data_source_id, external_id)`, which
+is a *prefix* of the three-column constraint and served by the same btree. Only a
+search for chunks by `external_id` while not knowing the source would need an
+index of its own, and nothing asks that — a run is always inside one source.
+
+`resources.external_id` *does* get one, because there it is the constraint's
+**last** column with nothing usable in front of it. That index is what a
 re-ingestion uses to find the row it wrote last time.
 
 **`UNIQUE(external_data_source_id, external_id)` scopes uniqueness to the source,
@@ -1489,12 +1539,12 @@ referring forward to `Team` costs nothing at import time, and neither does
 `SourceCredentials` and `ExternalDataSource` naming each other from inside the
 same group.
 
-`resource.py` and `chunk.py` are the pair where that rule is doing real work.
-`Resource.chunks` and `Chunk.resource` name each other, and both reach out to
-`Team` and `Department` in a third group which reach back — a straight import
-would be a cycle in two directions at once. `citation.py` is the same shape again
-and worse: it names `ChatSessionMessage`, `Chunk` and `Resource`, three classes in
-three groups, all of which name it back.
+`citation.py` is where that rule is doing the most work: it names
+`ChatSessionMessage`, `Chunk` and `Resource`, three classes in three groups, all
+of which name it back. `resource.py` and `chunk.py` each reach out to `Team` and
+`Department` in a third group which reach back, so they need it too — though no
+longer because of each other. Those two stopped naming each other entirely when
+chunks moved onto the composite key.
 
 **Enum modules are the one exception, and they are why this works.** They import
 nothing at all, so importing one across a group boundary cannot cycle — which is
@@ -1512,9 +1562,9 @@ a connection — but it does mean `pgvector` has to be installed for
 The consequence: **importing a module is what makes its mapper real to
 SQLAlchemy**, and the seven groups now depend on each other's mappers.
 `Department.teams` needs `Team` to exist before `configure_mappers()` can resolve
-it, `Team.external_data_sources` needs `ExternalDataSource`, `Resource.chunks`
-needs `Chunk`, `Citation.chunk` needs it again from a different direction, and so
-on across all seven. Import the top-level package:
+it, `Team.external_data_sources` needs `ExternalDataSource`, `Team.chunks` needs
+`Chunk`, `Citation.chunk` needs it again from a different direction, and so on
+across all seven. Import the top-level package:
 
 ```python
 from app.entities import ChatSession, Chunk, Citation, Document, Resource, User

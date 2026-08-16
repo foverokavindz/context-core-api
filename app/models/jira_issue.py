@@ -1,5 +1,6 @@
 from pydantic import Field
 
+from app.entities.knowledge_sources.resource_type import ResourceType
 from app.models.permission_scope import PermissionScope
 
 EPIC_ISSUE_TYPE = "Epic"
@@ -22,6 +23,11 @@ class JiraIssue(PermissionScope):
     parent_key: str | None = None
 
     child_issues: list[str] = Field(default_factory=list)
+
+    external_id: str # = key. TRACK-25 means something only inside its project, which is why resources scopes uniqueness to (source, external_id)
+    title: str | None = None # = summary, which is Jira's word for the same thing
+    version_key: str | None = None # Jira exposes no version on the fields we read, and version_key is nullable precisely because not every source has one
+    resource_type: ResourceType = ResourceType.JIRA_ISSUE
 
     @property
     def is_epic(self) -> bool:

@@ -44,18 +44,21 @@ class JiraParser:
 
         fields = _as_dict(raw.get("fields"))
         description = adf_to_text(fields.get("description")).strip()
+        summary = _text(fields.get("summary"))
 
         return JiraIssue(
             key=key,
             project_key=_nested_name(fields, "project", "key") or _project_from(key),
             issue_type=_nested_name(fields, "issuetype", "name") or UNKNOWN_ISSUE_TYPE,
-            summary=_text(fields.get("summary")),
+            summary=summary,
             description=description or None,
             status=_nested_name(fields, "status", "name"),
             parent_key=_nested_name(fields, "parent", "key"),
-            # Left empty on purpose. Children are resolved by the ingestion
-            # service once every issue in the run has been parsed.
+
             child_issues=[],
+
+            external_id=key,
+            title=summary,
         )
 
     def parse_many(
@@ -72,8 +75,7 @@ class JiraParser:
             try:
                 issues.append(self.parse(raw))
             except ValueError:
-                # No key means nothing to name it by, so it is recorded by its
-                # position in the response instead.
+
                 logger.warning("Skipping Jira issue %d: payload has no key", position)
                 errors.append(
                     (f"issue #{position}", "Jira returned an issue with no key.")

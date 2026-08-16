@@ -47,6 +47,8 @@ def make_page(
         status=status,
         version_number=version_number,
         content=content,
+        external_id=page_id,
+        version_key=None if version_number is None else str(version_number),
     )
 
 

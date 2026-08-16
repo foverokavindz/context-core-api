@@ -40,6 +40,7 @@ def make_message(
         message_ts=message_ts,
         author_id=author_id,
         text=text,
+        external_id=f"{channel_id}:{message_ts}",
     )
 
 

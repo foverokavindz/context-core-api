@@ -404,6 +404,13 @@ def test_edit_pin_and_client_metadata_are_ignored(parser: SlackParser) -> None:
         "team_id",
         "department_id",
         "access_scope",
+        # The resources columns this message becomes. Derived from the two
+        # fields above rather than read from the payload - which is the point of
+        # this test: `edited`, `pinned_to` and the rest still reach none of them.
+        "external_id",
+        "title",
+        "version_key",
+        "resource_type",
     }
     assert message.team_id is None
     assert message.department_id is None

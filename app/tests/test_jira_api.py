@@ -54,6 +54,8 @@ def make_issue(index: int, *, issue_type: str = "Story") -> JiraIssue:
         status="In Progress",
         parent_key="TRACK-10" if issue_type == "Story" else None,
         child_issues=[] if issue_type == "Story" else ["TRACK-1"],
+        external_id=f"TRACK-{index}",
+        title=f"Summary {index}",
     )
 
 

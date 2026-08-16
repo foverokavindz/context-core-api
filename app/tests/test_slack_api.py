@@ -61,7 +61,11 @@ def make_message(
     text: str = "We should update the authentication flow.",
 ) -> SlackMessage:
     return SlackMessage(
-        channel_id=CHANNEL, message_ts=message_ts, author_id=USER, text=text
+        channel_id=CHANNEL,
+        message_ts=message_ts,
+        author_id=USER,
+        text=text,
+        external_id=f"{CHANNEL}:{message_ts}",
     )
 
 
@@ -192,6 +196,12 @@ def test_the_messages_carry_their_fields() -> None:
         "team_id": None,
         "department_id": None,
         "access_scope": "TEAM",
+        # The resources columns. A message has no title and Slack reports no
+        # version on what this connector reads, so two of the four are null.
+        "external_id": f"{CHANNEL}:{TS}",
+        "title": None,
+        "version_key": None,
+        "resource_type": "SLACK_MESSAGE",
     }
 
 

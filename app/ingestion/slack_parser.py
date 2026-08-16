@@ -127,6 +127,8 @@ class SlackParser:
             message_ts=message_ts,
             author_id=_author_id(raw),
             text=text,
+
+            external_id=f"{channel_id}:{message_ts}",
         )
 
     def parse_many(
