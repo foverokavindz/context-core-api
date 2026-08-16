@@ -34,8 +34,7 @@ class Citation(UUIDMixin, TimestampMixin, Base):
         ForeignKey("resources.id"),
         nullable=False,
         index=True,
-    ) # which file, issue, page, message or document that text came from. This is now the only path from a citation to its resource: a chunk names its resource by (external_data_source_id, external_id) rather than by id, so there is no Chunk.resource to walk. It was worth storing even when there was one - rendering a source list should not have to join through chunks to name a file - and it is load-bearing now
-
+    )
     citation_order: Mapped[int] = mapped_column(Integer, nullable=False) # the position this source takes in the answer's source list, so [1] and [2] survive a re-read rather than being whatever order the rows came back in
 
     __table_args__ = (

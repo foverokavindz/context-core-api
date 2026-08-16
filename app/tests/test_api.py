@@ -62,6 +62,7 @@ def make_chunk(
         start_line=25,
         end_line=62,
         content=content,
+        external_id=f"src/file{index}.ts",
         embedding=[float(index)] * 1536 if embedded else None,
         embedding_model="text-embedding-3-small" if embedded else None,
     )

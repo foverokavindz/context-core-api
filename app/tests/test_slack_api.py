@@ -75,7 +75,11 @@ def make_chunk(
     content: str = "We should update the authentication flow.",
 ) -> SlackChunk:
     return SlackChunk(
-        channel_id=CHANNEL, message_ts=message_ts, author_id=USER, content=content
+        channel_id=CHANNEL,
+        message_ts=message_ts,
+        author_id=USER,
+        content=content,
+        external_id=f"{CHANNEL}:{message_ts}",
     )
 
 
@@ -225,6 +229,10 @@ def test_the_chunks_carry_their_fields() -> None:
         "department_id": None,
         "access_scope": "TEAM",
         "external_data_source_id": None,
+        # Which resource row this belongs to. external_id is set by the chunker
+        # from the message; chunk_index is the default, one chunk per message.
+        "external_id": f"{CHANNEL}:{TS}",
+        "chunk_index": 0,
     }
 
 

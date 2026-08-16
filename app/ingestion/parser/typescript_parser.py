@@ -207,9 +207,12 @@ class TypeScriptTreeSitterParser(BaseParser):
         if not chunks:
             chunks.append(self._whole_file_chunk(file))
 
+        for position, chunk in enumerate(chunks):
+            chunk.chunk_index = position
+
         return chunks
 
-    # -------------------------------------------------------------- traversal
+    # traversal
 
     def _visit(
         self,
@@ -528,6 +531,7 @@ class TypeScriptTreeSitterParser(BaseParser):
             file_name=file.file_name,
             extension=file.extension,
             file_sha=file.file_sha,
+            external_id=file.path, # names the resource row this chunk belongs to; parse() fills chunk_index once it knows the order
             language=file.language or "unknown",
             symbol_type=symbol_type,
             symbol_name=symbol_name,

@@ -84,6 +84,7 @@ def make_chunk(page_id: str = "111", *, content: str = "Space: TrackIt (TR)") ->
         status="current",
         version_number=7,
         content=content,
+        external_id=page_id,
     )
 
 

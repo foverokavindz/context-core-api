@@ -49,6 +49,7 @@ class JiraChunker:
             parent_key=issue.parent_key,
             child_issues=list(issue.child_issues),
             content=self._render_content(issue),
+            external_id=issue.external_id,
         )
 
     def chunk_many(self, issues: list[JiraIssue]) -> list[JiraChunk]:

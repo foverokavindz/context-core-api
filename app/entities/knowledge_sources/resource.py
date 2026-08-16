@@ -99,5 +99,6 @@ class Resource(UUIDMixin, TimestampMixin, Base):
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="resource",
         cascade="all, delete-orphan",
-    ) # the one cascade in the schema: chunks are derived from their resource and re-ingestion replaces them wholesale. It is a session-level cascade, not ON DELETE CASCADE - see docs/entities.md
+    )
+    
     citations: Mapped[list["Citation"]] = relationship(back_populates="resource") # every answer that named this resource as a source. No cascade: deleting a resource that has been cited is refused, because the citation is a record of what an answer was built on and outlives the thing it points at being re-ingested

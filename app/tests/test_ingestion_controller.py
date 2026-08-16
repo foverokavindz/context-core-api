@@ -315,6 +315,7 @@ def make_github_result() -> IngestionResult:
         start_line=1,
         end_line=1,
         content="export class AuthService {}",
+        external_id="src/auth/auth.service.ts",
     )
     return IngestionResult(
         repository=REPOSITORY,

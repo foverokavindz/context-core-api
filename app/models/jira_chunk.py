@@ -19,5 +19,8 @@ class JiraChunk(PermissionScope):
 
     content: str
 
+    external_id: str # = key, the same value the issue carries
+    chunk_index: int = 0 # one issue makes one chunk, so this is always the first
+
     embedding: list[float] | None = None
     embedding_model: str | None = None

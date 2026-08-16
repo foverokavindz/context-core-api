@@ -831,6 +831,13 @@ SQLAlchemy infers the join from the constraint, appending to `resource.chunks`
 fills both columns on the chunk, and the cascade behaves exactly as a
 single-column one would — the composite key costs nothing at the ORM level.
 
+The pipeline fills both columns anyway, without waiting for the ORM to do it.
+`external_data_source_id` is stamped onto every chunk by `_apply_source_context`,
+and each chunker sets `external_id` from the item it rendered — the file path, the
+issue key, the page id, the `channel:timestamp` pair. That is what lets a whole
+run be inserted in one pass: the chunks already know which resource they belong to
+before either row exists.
+
 **`UNIQUE(external_data_source_id, external_id, chunk_index)`** means a resource
 cannot hold the same position twice, so a re-run that writes chunk 3 again
 collides instead of quietly duplicating it. It takes three columns rather than

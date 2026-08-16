@@ -39,6 +39,7 @@ def make_chunk(index: int, content: str | None = None) -> CodeChunk:
         start_line=1,
         end_line=5,
         content=content if content is not None else f"export function fn{index}() {{}}",
+        external_id=f"src/file{index}.ts",
     )
 
 
@@ -429,6 +430,7 @@ def test_any_source_chunk_embeds_through_the_same_path() -> None:
             issue_type="Story",
             summary="Refresh tokens",
             content="Issue Key: TRACK-25\nRefresh tokens",
+            external_id="TRACK-25",
         ),
         ConfluenceChunk(
             page_id="7110680",
@@ -436,11 +438,13 @@ def test_any_source_chunk_embeds_through_the_same_path() -> None:
             space_key="TR",
             title="Authentication",
             content="Space: TrackIt (TR)\nAuthentication",
+            external_id="7110680",
         ),
         SlackChunk(
             channel_id="C0123456789",
             message_ts="1754810101.100100",
             content="We should update the authentication flow.",
+            external_id="C0123456789:1754810101.100100",
         ),
     ]
 

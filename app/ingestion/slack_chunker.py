@@ -55,6 +55,7 @@ class SlackChunker:
             message_ts=message.message_ts,
             author_id=message.author_id,
             content=self._render_content(message),
+            external_id=message.external_id,
         )
 
     def chunk_many(self, messages: list[SlackMessage]) -> list[SlackChunk]:

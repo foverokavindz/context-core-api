@@ -148,6 +148,10 @@ def test_the_chunk_carries_no_thread_reaction_or_file_field(
         "department_id",
         "access_scope",
         "external_data_source_id",
+        # Which resource row this belongs to. The chunker sets external_id from
+        # the message; chunk_index takes its default, one chunk per message.
+        "external_id",
+        "chunk_index",
     }
     assert chunk.embedding is None
     assert chunk.embedding_model is None

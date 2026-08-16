@@ -69,6 +69,7 @@ def make_chunk(index: int, content: str = "Issue Key: TRACK-1") -> JiraChunk:
         status="In Progress",
         parent_key="TRACK-10",
         content=content,
+        external_id=f"TRACK-{index}",
     )
 
 

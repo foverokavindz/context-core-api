@@ -15,5 +15,8 @@ class ConfluenceChunk(PermissionScope):
 
     content: str
 
+    external_id: str # = page_id, the same value the page carries
+    chunk_index: int = 0 # one page makes one chunk today; a chunker that splits a long page would number them here
+
     embedding: list[float] | None = None
     embedding_model: str | None = None

@@ -22,6 +22,9 @@ class CodeChunk(PermissionScope):
     extension: str | None = None
     file_sha: str | None = None
 
+    external_id: str # = file_path, the same value the resource file carries
+    chunk_index: int = 0 # a file yields several chunks, so the parser numbers them; the default is only correct for a file that produced exactly one
+
     language: str
 
     symbol_type: str

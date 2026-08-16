@@ -55,6 +55,7 @@ class ConfluenceChunker:
             status=page.status,
             version_number=page.version_number,
             content=self._render_content(page),
+            external_id=page.external_id,
         )
 
     def chunk_many(self, pages: list[ConfluencePage]) -> list[ConfluenceChunk]:

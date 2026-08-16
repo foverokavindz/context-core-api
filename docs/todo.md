@@ -141,11 +141,18 @@ call — the whole reason the column is there. `embedding_model` has to be writt
 in the same statement as `embedding`, or the record of which model produced a
 vector is lost.
 
-**`chunk_index` is not checked for gaps.** The unique constraint stops a resource
-holding index 0 twice; nothing requires its chunks to run 0, 1, 2 with nothing
-missing. A partial re-ingestion that writes some chunks and fails can leave a
-hole, and reassembling a resource in order has to tolerate that or the service
-has to prevent it.
+**`chunk_index` is not checked for gaps, and does not mean the same thing twice.**
+The unique constraint stops a resource holding index 0 twice; nothing requires its
+chunks to run 0, 1, 2 with nothing missing. A partial re-ingestion that writes
+some chunks and fails can leave a hole, and reassembling a resource in order has
+to tolerate that or the service has to prevent it.
+
+The value itself is produced: chunkers number one chunk per item as 0, and the
+TypeScript parser numbers a file's chunks in traversal order. But that order is
+positional, so inserting a method at the top of a class renumbers everything below
+it, and a second run that writes chunk 3 collides with the old chunk 3 rather than
+recognising it. What an index *means* across runs is answered with the
+re-ingestion strategy below, not before it.
 
 **Re-ingestion strategy is undecided.** `version_key` and `external_id` exist so a
 second run can recognise an item it already stored, and nothing yet decides
@@ -153,20 +160,6 @@ whether an unchanged `version_key` skips the resource entirely, or whether a
 changed one replaces its chunks, renumbers them, or writes a new resource
 version. `SyncRun.chunks_updated` and `chunks_deleted` are counters waiting on
 that decision.
-
-**One of the chunk table's columns still has no source.** `chunks` needs
-`external_data_source_id`, `external_id` and `chunk_index`, and only the last has
-nowhere to come from. `external_data_source_id` is declared on `PermissionScope`
-and stamped onto every chunk by `_apply_source_context`; `external_id` is filled
-by SQLAlchemy itself the moment a chunk is appended to `resource.chunks`, which is
-what the relationship is for. `chunk_index` is `NOT NULL` and nothing counts it —
-for the three one-chunk-per-item sources it is always 0, and for GitHub it is the
-chunk's position within its file. It belongs to whatever writes the first `chunks`
-row.
-
-Worth knowing which write path is taken: attaching chunks through the relationship
-fills the key for free, while a bulk insert that never loads the resource has to
-set both columns itself.
 
 **Document-origin chunks are linked to nothing.** A resource created from an
 uploaded document has `external_data_source_id` and `external_id` both `NULL` —

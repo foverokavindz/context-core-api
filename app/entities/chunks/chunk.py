@@ -2,7 +2,16 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import (
+    JSON,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,11 +33,15 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "chunks"
 
-    resource_id: Mapped[UUID] = mapped_column(
+    external_data_source_id: Mapped[UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("resources.id"),
-        nullable=False,
-    ) # no index of its own - the unique constraint below leads with this column and already builds that btree
+        nullable=True,
+    ) # no index of its own - the unique constraint below leads with this column and already builds that btree. Not a ForeignKey() on its own line: it is half of the composite key below, and declaring it singly as well would emit a second, redundant constraint
+
+    external_id: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    ) # 512 for the same reason resources.external_id is: a file path is the long case. No index of its own either - unlike resources.external_id, which is the *last* column of its constraint and so needs one, this is the second of three, and "every chunk of this resource" is a prefix match on (external_data_source_id, external_id) that the constraint's btree already answers. Looking a chunk up by external_id without knowing its source is not a query anything makes
 
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False) # the chunk's position within its resource, so a retrieved chunk can be put back in order
 
@@ -85,10 +98,16 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     ) # these three are copies of the resource's, denormalized so a vector search can filter chunk rows before it ranks them rather than joining resources first. The resource stays the source of truth, and nothing here keeps the copy in step - the ingestion service does, see docs/todo.md
 
     __table_args__ = (
-        UniqueConstraint("resource_id", "chunk_index"),
-    ) # a resource cannot hold the same chunk index twice, so a re-ingestion that writes chunk 3 again collides instead of duplicating
+        ForeignKeyConstraint(
+            ["external_data_source_id", "external_id"],
+            ["resources.external_data_source_id", "resources.external_id"],
+            name="fk_chunks_resource",
+        ),
+        UniqueConstraint("external_data_source_id", "external_id", "chunk_index"),
+    ) # the first replaces what resource_id used to do with one column: a chunk belongs to the resource sharing its (source, external_id) pair, which is exactly what resources declares unique. The second scopes chunk_index to that same pair rather than to external_id alone - external_id only means something inside its source, so two repositories each holding a README.md would otherwise collide at every index. Neither constraint reaches a document-origin chunk, whose columns are both NULL; see docs/todo.md
 
-    resource: Mapped["Resource"] = relationship(back_populates="chunks")
+    resource: Mapped["Resource | None"] = relationship(back_populates="chunks") # optional, unlike the old resource_id which was NOT NULL: the columns this joins on are nullable, so a document-origin chunk resolves to None here rather than to a row
+
     team: Mapped["Team | None"] = relationship(back_populates="chunks")
     department: Mapped["Department | None"] = relationship(back_populates="chunks")
     citations: Mapped[list["Citation"]] = relationship(back_populates="chunk") # every time this chunk was cited in an answer, which is a record of what retrieval actually found useful and not something the chunk needs to know to be embedded
