@@ -8,31 +8,6 @@ version = "0.1.0"
 description = "Ingestion stage one: pulls TypeScript source out of GitHub, Epics/Stories out of Jira, pages out of Confluence and channel history out of Slack, and turns all four into chunks."
 requires-python = ">=3.11"
 
-# httpx is a runtime dependency, not a test one: the Jira, Confluence and Slack
-# connectors' HTTP client. beautifulsoup4 is the same story - it flattens
-# Confluence storage markup into text on the ingestion path. Both have to be
-# here rather than in [dev] because app.main imports every router, so a missing
-# one would break the GitHub path too.
-#
-# beautifulsoup4 runs on Python's built-in html.parser; lxml is deliberately not
-# a dependency, since storage format is small and well-formed enough not to need
-# it.
-#
-# SQLAlchemy is the ORM behind app/entities. No database driver is listed with
-# it yet: nothing in this version opens a connection, so the entities exist as
-# metadata only. psycopg (or asyncpg) joins this list when the engine does.
-#
-# pgvector is here for its SQLAlchemy type alone - chunks.embedding is declared
-# as JSON().with_variant(Vector(1536), "postgresql"), so importing app.entities
-# needs the type even though nothing yet writes a vector. It is a pure-python
-# package with no client library behind it; the CREATE EXTENSION that makes the
-# column work on a real server belongs to the first migration.
-#
-# openai is the embedding client, used against an Azure deployment through its
-# OpenAI-compatible /openai/v1 surface, and python-dotenv is what loads the
-# three variables it needs. Both are runtime dependencies rather than dev ones
-# for the same reason httpx is: app.main imports every router, so a missing one
-# would break the Jira, Confluence and Slack paths too.
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
@@ -43,23 +18,19 @@ dependencies = [
     "tree-sitter",
     "tree-sitter-typescript",
     "sqlalchemy>=2.0",
+    "alembic",
+    "psycopg[binary]",
     "pgvector",
     "openai",
     "python-dotenv",
 ]
 
-# Test-only tools. Installed with: pip install -e ".[dev]"
-# httpx2 is the HTTP client Starlette's TestClient runs on; current Starlette
-# deprecates the original httpx in its place. The two coexist deliberately and
-# are separate importable modules - httpx2 serves the test client, httpx serves
-# the Jira connector.
 [project.optional-dependencies]
 dev = [
     "pytest",
     "httpx2",
 ]
 
-# Listed explicitly so setuptools does not try to guess the layout.
 [tool.setuptools]
 packages = [
     "app",

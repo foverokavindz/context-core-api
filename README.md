@@ -125,9 +125,13 @@ the per-source `config` keys and what the run file holds.
 Deliberately absent, so the ingestion path stays small enough to understand and
 control end to end:
 
-- no vector store, no pgvector
-- no database of any kind — the `ExternalDataSource` a run records is built and
-  never inserted, and a run's output goes to a file
+- no vector search — the `chunks.embedding` column exists and is `vector(1536)`,
+  but nothing writes to it and there is no ANN index to search it with
+- no code that reads or writes a row. The schema is created on a real PostgreSQL
+  server by the migrations in `alembic/versions` (see
+  [docs/migrations.md](docs/migrations.md)) and the ingestion path does not touch
+  it: the `ExternalDataSource` a run records is built and never inserted, and a
+  run's output goes to a file
 - no retrieval, reranking or LLM calls
 - no authentication — the team and user a request names are trusted as sent
 - no credential table, and the access token sits on the source in plain text

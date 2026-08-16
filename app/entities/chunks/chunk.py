@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pgvector.sqlalchemy import Vector
+from pgvector.sqlalchemy import VECTOR, Vector
 from sqlalchemy import (
     JSON,
     ForeignKey,
@@ -59,10 +59,10 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     content: Mapped[str] = mapped_column(Text, nullable=False) # the text that gets embedded, kept beside its vector so retrieval reads one row
 
     embedding: Mapped[list[float] | None] = mapped_column(
-        JSON().with_variant(Vector(EMBEDDING_DIMENSIONS), "postgresql"),
+        VECTOR(1536),
         nullable=True,
     ) # a real vector(1536) on PostgreSQL and JSON elsewhere, the same trade config and the metadata columns make. Nullable: a chunk exists from the moment it is written and is embedded after
-
+  
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True) # which model produced the vector, so a model change can be found rather than guessed at
 
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True) # room for a sha256 hex digest. Nothing here hashes anything - the ingestion service does, to skip re-embedding content that did not change
