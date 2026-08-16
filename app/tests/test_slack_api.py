@@ -196,6 +196,9 @@ def test_the_messages_carry_their_fields() -> None:
         "team_id": None,
         "department_id": None,
         "access_scope": "TEAM",
+        # Null for the same reason the three above are: this endpoint was given
+        # a token and a channel, not a connected source.
+        "external_data_source_id": None,
         # The resources columns. A message has no title and Slack reports no
         # version on what this connector reads, so two of the four are null.
         "external_id": f"{CHANNEL}:{TS}",
@@ -221,6 +224,7 @@ def test_the_chunks_carry_their_fields() -> None:
         "team_id": None,
         "department_id": None,
         "access_scope": "TEAM",
+        "external_data_source_id": None,
     }
 
 

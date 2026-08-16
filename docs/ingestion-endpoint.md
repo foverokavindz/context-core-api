@@ -138,6 +138,20 @@ projection — one definition of what a run looks like, whether it arrived over
 HTTP or was written to a file. It is written with every item and every chunk,
 each carrying its complete text and its complete vector.
 
+**The difference from a per-source run is what the items know about themselves.**
+Every resource file and every chunk here carries `team_id`, `department_id`,
+`access_scope` and `external_data_source_id`; through `POST /api/v1/github/ingest`
+all four are null. No connector can answer any of them — a parser is handed a
+repository, not a team and not a connected source — so they are declared together
+on `PermissionScope` and stamped once, over the resource files and the chunks
+alike, by `_apply_source_context` in
+`app/background/pipeline/ingestion_pipeline.py`.
+
+`external_data_source_id` is the one that makes the run writable: it is half of
+the `(external_data_source_id, external_id)` pair that ties a chunk to its
+resource, and the source is created with a real UUID before the run is even
+scheduled, so it is in hand long before anything is persisted.
+
 **The `source` block never contains `token`.** It is assembled field by field
 rather than dumped, precisely so that column cannot ride along by accident.
 

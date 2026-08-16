@@ -154,15 +154,19 @@ changed one replaces its chunks, renumbers them, or writes a new resource
 version. `SyncRun.chunks_updated` and `chunks_deleted` are counters waiting on
 that decision.
 
-**Deleting a resource with its chunks is a service's job, and no longer a
-cascade's.** Chunks name their resource by `(external_data_source_id,
-external_id)` rather than by a foreign key to `resources.id`, so there is no
-`Resource.chunks` relationship and nothing for `cascade="all, delete-orphan"` to
-hang off. The two `DELETE`s are in
-[entities.md](entities.md#deleting-a-resource-and-its-chunks); what is owed is a
-service that always issues both, in order, in one transaction. A resource deleted
-on its own leaves its chunks pointing at a row that is gone, and nothing refuses
-it.
+**One of the chunk table's columns still has no source.** `chunks` needs
+`external_data_source_id`, `external_id` and `chunk_index`, and only the last has
+nowhere to come from. `external_data_source_id` is declared on `PermissionScope`
+and stamped onto every chunk by `_apply_source_context`; `external_id` is filled
+by SQLAlchemy itself the moment a chunk is appended to `resource.chunks`, which is
+what the relationship is for. `chunk_index` is `NOT NULL` and nothing counts it —
+for the three one-chunk-per-item sources it is always 0, and for GitHub it is the
+chunk's position within its file. It belongs to whatever writes the first `chunks`
+row.
+
+Worth knowing which write path is taken: attaching chunks through the relationship
+fills the key for free, while a bulk insert that never loads the resource has to
+set both columns itself.
 
 **Document-origin chunks are linked to nothing.** A resource created from an
 uploaded document has `external_data_source_id` and `external_id` both `NULL` —
@@ -222,14 +226,14 @@ citations, which is the RAG path.
 up. The unique constraint stops two sources at position 1; nothing requires an
 answer's citations to run 1, 2, 3 with nothing missing.
 
-**Deleting a cited chunk or resource is refused.** Re-ingestion replaces a
-resource's chunks by deleting them, and the database refuses that `DELETE` while a
-citation points at one. A re-ingestion that replaces the chunks of a resource
-somebody has already asked about hits this. Whether the answer is to null the
-citation's `chunk_id`, to copy the cited text onto the citation, or to keep
-superseded chunks is open, and it is the largest undecided question in this group.
-This does not depend on there being a cascade — there is none anywhere in the
-schema — only on the citation's own foreign keys; see
+**Deleting a cited chunk or resource is refused, including through a cascade.**
+`Resource.chunks` is `cascade="all, delete-orphan"`, so deleting a resource
+through a session issues a `DELETE` for its chunks — and the database refuses that
+`DELETE` while a citation points at one. A re-ingestion that replaces the chunks
+of a resource somebody has already asked about hits this. Whether the answer is to
+null the citation's `chunk_id`, to copy the cited text onto the citation, or to
+keep superseded chunks is open, and it is the largest undecided question in this
+group. There is deliberately no second cascade — see
 [entities.md](entities.md#citations).
 
 **Message order is `created_at` and nothing more.** Two messages written in the

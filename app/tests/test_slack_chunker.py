@@ -147,6 +147,7 @@ def test_the_chunk_carries_no_thread_reaction_or_file_field(
         "team_id",
         "department_id",
         "access_scope",
+        "external_data_source_id",
     }
     assert chunk.embedding is None
     assert chunk.embedding_model is None

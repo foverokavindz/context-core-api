@@ -47,8 +47,8 @@ def run_ingestion_pipeline(source: ExternalDataSource, request: IngestDataReques
         _write_run(source, _failed(source, request, started_at, exc))
         return
 
-    _apply_permissions(items, request)
-    _apply_permissions(result.chunks, request)
+    _apply_source_context(items, source, request)
+    _apply_source_context(result.chunks, source, request)
 
     response = to_response(result, full=RUN_FILE_FULL)
 
@@ -115,14 +115,17 @@ def _ingest( source: ExternalDataSource, request: IngestDataRequest) -> tuple[An
     raise ValueError(f"No ingestion pipeline for source type {source.source_type}")
 
 
-def _apply_permissions(
-    objects: Iterable[PermissionScope], request: IngestDataRequest
+def _apply_source_context(
+    objects: Iterable[PermissionScope],
+    source: ExternalDataSource,
+    request: IngestDataRequest,
 ) -> None:
 
     for obj in objects:
         obj.team_id = request.team_id
         obj.department_id = request.department_id
         obj.access_scope = request.access_scope
+        obj.external_data_source_id = source.id
 
 
 def _source_record(

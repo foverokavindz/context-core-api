@@ -109,6 +109,8 @@ def to_response(result: IngestionResult, *, full: bool = False) -> IngestRespons
                 team_id=file.team_id,
                 department_id=file.department_id,
                 access_scope=file.access_scope,
+
+                external_data_source_id=file.external_data_source_id,
                 external_id=file.path,
                 title=file.file_name,
                 version_key=file.file_sha,

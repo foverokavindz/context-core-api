@@ -406,6 +406,31 @@ def test_every_chunk_carries_the_permission_context(runs_dir, monkeypatch) -> No
     assert chunk["access_scope"] == "TEAM"
 
 
+def test_every_resource_file_names_the_source_it_came_from(
+    runs_dir, monkeypatch
+) -> None:
+    """Half of the key a chunk uses to find its resource, and the half no
+    connector can supply - the parser was handed a repository, not a source."""
+    run = run_and_read(runs_dir, monkeypatch)
+
+    source_id = run["source"]["external_data_source_id"]
+    assert source_id
+
+    for resource_file in run["result"]["resource_files"]:
+        assert resource_file["external_data_source_id"] == source_id
+
+
+def test_every_chunk_names_the_source_it_came_from(runs_dir, monkeypatch) -> None:
+    """The other half arrives with the chunk itself; see docs/todo.md for the
+    two columns the chunks table still has no source for."""
+    run = run_and_read(runs_dir, monkeypatch)
+
+    source_id = run["source"]["external_data_source_id"]
+
+    for chunk in run["result"]["chunks"]:
+        assert chunk["external_data_source_id"] == source_id
+
+
 def test_a_failed_run_is_written_rather_than_lost(runs_dir, monkeypatch) -> None:
     """A background task has no client left to raise at."""
     run = run_and_read(runs_dir, monkeypatch, error=RepositoryNotFoundError())

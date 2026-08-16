@@ -91,6 +91,7 @@ in the three fields, **Execute**.
 			"team_id": null,
 			"department_id": null,
 			"access_scope": "TEAM",
+			"external_data_source_id": null,
 
 			"external_id": "src/auth/AuthService.ts",
 			"title": "AuthService.ts",
@@ -161,11 +162,18 @@ vector in `embedding`. There is no preview form of either.
 > carry `external_id`, `title`, `version_key` and `resource_type` for the same
 > reason.
 
-> **The three permission fields are null here, and that is correct.** This
-> endpoint takes a token and a repository and knows nothing about a team, so
-> `team_id` and `department_id` serialise as null and `access_scope` as its
-> default. `POST /api/v1/ingestData/github` is the path that fills them in —
-> see [../architecture.md](../architecture.md).
+> **The four stamped fields are null here, and that is correct.** This endpoint
+> takes a token and a repository and knows nothing about a team or a connected
+> source, so `team_id`, `department_id` and `external_data_source_id` serialise
+> as null and `access_scope` as its default. They are declared together on
+> `PermissionScope` for exactly that reason — none of them is anything a
+> connector could answer. `POST /api/v1/ingestData/github` is the path that fills
+> them in — see [../architecture.md](../architecture.md).
+>
+> `external_data_source_id` matters more than the other three: it is half of the
+> `(external_data_source_id, external_id)` pair a chunk uses to find its
+> resource, so a run through this endpoint produces resource files that could not
+> be written to the database as they stand.
 
 To see everything, send `"full": true`:
 
