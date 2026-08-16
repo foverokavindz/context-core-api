@@ -253,7 +253,7 @@ false`, which only shortens the *response*. Sampling never sets `truncated`.
 7. Check that titles look right, that a space's home page has `parent_id: null`,
    and that nested pages carry a real `parent_id`.
 8. Call it again with `"full": true` and confirm every page and every chunk comes
-   back, with chunk text no longer ending in `... [truncated]`.
+   back, rather than the sampled ten and twenty.
 9. Set `max_pages` below the space size and confirm `truncated: true`; set it at
    or above and confirm `truncated: false`.
 10. Use a deliberately wrong token and confirm a `401`; use a space key the

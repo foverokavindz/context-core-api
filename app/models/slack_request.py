@@ -70,9 +70,3 @@ class SlackIngestRequest(BaseModel):
         "filter and chunk without spending embedding quota - the response is "
         "the same shape either way, with null vectors.",
     )
-    include_embeddings: bool = Field(
-        default=False,
-        description="Return each chunk's complete vector instead of the first "
-        "few values. A one-line message still carries 1536 floats, so this adds "
-        "up faster here than anywhere else.",
-    )

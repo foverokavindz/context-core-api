@@ -11,15 +11,11 @@ from fastapi import APIRouter, Depends
 
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService, IngestionResult
-from app.models.code_chunk import CodeChunk
 from app.models.embedding_counts import EmbeddingCounts
 from app.models.github_request import GitHubIngestRequest
 from app.models.ingest_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
-    EMBEDDING_PREVIEW_VALUES,
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_FILES_LIMIT,
-    ChunkSample,
     FileError,
     FileSummary,
     IngestResponse,
@@ -63,24 +59,17 @@ def ingest_repository(request: GitHubIngestRequest, service: GitHubIngestionServ
         max_files=request.max_files,
         embed=request.embed,
     )
-    return to_response(
-        result, full=request.full, include_embeddings=request.include_embeddings
-    )
+    return to_response(result, full=request.full)
 
 
-def to_response(
-    result: IngestionResult,
-    *,
-    full: bool = False,
-    include_embeddings: bool = False,
-) -> IngestResponse:
+def to_response(result: IngestionResult, *, full: bool = False) -> IngestResponse:
     """Project the internal result onto the HTTP response.
 
     The pipeline always processes the whole repository; `full` only decides how
-    much of that result is serialised, and `include_embeddings` whether a
-    chunk's vector is shown whole or as its first few values. Sampled by default
-    because a real repository produces hundreds of chunks and the payload gets
-    unwieldy fast.
+    many of the files and chunks are serialised. Sampled by default because a
+    real repository produces hundreds of chunks and the payload gets unwieldy
+    fast - but whatever is serialised is serialised whole, contents and vectors
+    included.
 
     Public rather than private because the background pipeline serialises its
     run through this same projection - one definition of what a GitHub run looks
@@ -108,7 +97,13 @@ def to_response(
         ),
         resource_files=[
             FileSummary(
+                repository=file.repository,
+                branch=file.branch,
+                commit_sha=file.commit_sha,
                 path=file.path,
+                file_name=file.file_name,
+                extension=file.extension,
+                file_sha=file.file_sha,
                 language=file.language,
                 size=file.size,
                 team_id=file.team_id,
@@ -117,49 +112,6 @@ def to_response(
             )
             for file in result.files[:file_limit]
         ],
-        chunks=[
-            _to_sample(chunk, full=full, include_embeddings=include_embeddings)
-            for chunk in result.chunks[:chunk_limit]
-        ],
+        chunks=result.chunks[:chunk_limit],
         errors=[FileError(file=path, reason=reason) for path, reason in result.errors],
     )
-
-
-def _to_sample(
-    chunk: CodeChunk, *, full: bool, include_embeddings: bool
-) -> ChunkSample:
-    """Project one chunk, shortening its source and its vector for display."""
-    return ChunkSample(
-        file_path=chunk.file_path,
-        symbol_type=chunk.symbol_type,
-        symbol_name=chunk.symbol_name,
-        parent_symbol=chunk.parent_symbol,
-        start_line=chunk.start_line,
-        end_line=chunk.end_line,
-        content=chunk.content if full else _preview(chunk.content),
-        embedding=chunk.embedding if include_embeddings else None,
-        embedding_preview=(
-            None
-            if chunk.embedding is None or include_embeddings
-            else chunk.embedding[:EMBEDDING_PREVIEW_VALUES]
-        ),
-        # Taken from the vector in hand rather than from the run's summary, so a
-        # chunk that somehow missed the embedding pass reads as null here
-        # instead of borrowing the width of the ones that did not.
-        embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
-        embedding_model=chunk.embedding_model,
-        team_id=chunk.team_id,
-        department_id=chunk.department_id,
-        access_scope=chunk.access_scope,
-    )
-
-
-def _preview(content: str) -> str:
-    """Shorten a chunk's source for display.
-
-    Only the response is shortened - the CodeChunk objects the pipeline produced
-    still hold the complete span.
-    """
-    if len(content) <= CHUNK_CONTENT_PREVIEW_CHARS:
-        return content
-    return content[:CHUNK_CONTENT_PREVIEW_CHARS] + "\n... [truncated]"

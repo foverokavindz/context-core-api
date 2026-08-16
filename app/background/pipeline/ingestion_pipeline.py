@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 RUNS_DIRECTORY = Path(__file__).resolve().parents[2] / "data" / "runs"
 RUN_FILE_FULL = True
-RUN_FILE_INCLUDE_EMBEDDINGS = True
 
 
 def run_ingestion_pipeline(source: ExternalDataSource, request: IngestDataRequest) -> None:
@@ -51,9 +50,7 @@ def run_ingestion_pipeline(source: ExternalDataSource, request: IngestDataReques
     _apply_permissions(items, request)
     _apply_permissions(result.chunks, request)
 
-    response = to_response(
-        result, full=RUN_FILE_FULL, include_embeddings=RUN_FILE_INCLUDE_EMBEDDINGS
-    )
+    response = to_response(result, full=RUN_FILE_FULL)
 
     logger.info(
         "Ingestion run finished for %s source %s: %d resource files, %d chunks",

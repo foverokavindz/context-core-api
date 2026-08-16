@@ -79,7 +79,13 @@ in the three fields, **Execute**.
 
 	"resource_files": [
 		{
+			"repository": "my-org/backend",
+			"branch": "main",
+			"commit_sha": "abc123",
 			"path": "src/auth/AuthService.ts",
+			"file_name": "AuthService.ts",
+			"extension": ".ts",
+			"file_sha": "9f2c1ab",
 			"language": "typescript",
 			"size": 2450,
 			"team_id": null,
@@ -90,7 +96,13 @@ in the three fields, **Execute**.
 
 	"sample_chunks": [
 		{
+			"repository": "my-org/backend",
+			"branch": "main",
+			"commit_sha": "abc123",
 			"file_path": "src/auth/AuthService.ts",
+			"file_name": "AuthService.ts",
+			"extension": ".ts",
+			"file_sha": "9f2c1ab",
 			"symbol_type": "method",
 			"symbol_name": "login",
 			"parent_symbol": "AuthService",
@@ -107,20 +119,28 @@ in the three fields, **Execute**.
 The counts are complete; the lists are samples. A real repository would return
 megabytes of source otherwise. Limits live in `app/models/ingest_response.py`:
 
-| Constant                      | Default | Meaning                       |
-| ----------------------------- | ------- | ----------------------------- |
-| `SAMPLE_FILES_LIMIT`          | 10      | files listed in the response  |
-| `SAMPLE_CHUNKS_LIMIT`         | 20      | chunks listed in the response |
-| `CHUNK_CONTENT_PREVIEW_CHARS` | 600     | source shown per sample chunk |
-| `MAX_FILES_PER_INGESTION`     | 500     | files downloaded per request  |
+| Constant                  | Default | Meaning                       |
+| ------------------------- | ------- | ----------------------------- |
+| `SAMPLE_FILES_LIMIT`      | 10      | files listed in the response  |
+| `SAMPLE_CHUNKS_LIMIT`     | 20      | chunks listed in the response |
+| `MAX_FILES_PER_INGESTION` | 500     | files downloaded per request  |
 
 The internal `IngestionResult` always holds **every** file and **every** chunk —
-only the HTTP projection is sampled.
+only the HTTP projection is sampled, and it samples by *count* alone. Whatever
+is listed is listed whole: full source in `content`, the complete 1536-float
+vector in `embedding`. There is no preview form of either.
 
 > **The whole repository is always processed.** A response showing 10 files and
 > 20 chunks while reporting `accepted_files: 98` and `generated_chunks: 441` is
 > not a partial run — it is the complete run, sampled for display. The counts
 > are the truth; `resource_files` and `chunks` are a window onto it.
+
+> **`repository`, `branch` and `commit_sha` repeat on every file and chunk.**
+> They are also reported once at the top level, and for a single-branch run the
+> values are identical — the repetition is so one entry lifted out of either
+> list still says which commit of which branch it was read from.
+> `file_sha` is the blob SHA: it is what tells a re-ingestion that a file's
+> contents changed, and it is the natural `version_key` for the `resources` row.
 
 > **`resource_files` is the same key on all four endpoints.** A GitHub file, a
 > Jira issue, a Confluence page and a Slack message all arrive under it — each
@@ -140,8 +160,10 @@ curl -X POST http://localhost:8000/api/v1/github/ingest \
   -d '{"token":"YOUR_TOKEN","repository":"ORG/REPO","full":true}'
 ```
 
-That returns all accepted files and all chunks with untruncated bodies. The
-counts are identical either way — only the serialised detail changes.
+That returns all accepted files and all chunks instead of the sampled ten and
+twenty. The counts are identical either way — only how many entries are
+serialised changes. Expect tens of megabytes on a real repository, since every
+chunk carries its own vector.
 
 `truncated: true` is the separate signal that the run really did see only part
 of the repository: either `max_files` was reached, or GitHub truncated its own

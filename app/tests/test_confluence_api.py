@@ -30,11 +30,7 @@ from app.main import app
 from app.models.confluence_chunk import ConfluenceChunk
 from app.models.confluence_page import ConfluencePage
 from app.models.confluence_request import ConfluenceIngestRequest
-from app.models.confluence_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
-    SAMPLE_CHUNKS_LIMIT,
-    SAMPLE_PAGES_LIMIT,
-)
+from app.models.confluence_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_PAGES_LIMIT
 
 ENDPOINT = "/api/v1/confluence/ingest"
 
@@ -448,15 +444,16 @@ def test_sampling_does_not_set_truncated() -> None:
     assert body["truncated"] is False
 
 
-def test_long_chunk_text_is_shortened_for_display() -> None:
-    chunk = make_chunk(content="x" * (CHUNK_CONTENT_PREVIEW_CHARS + 500))
-    result = make_result(chunks=[chunk])
+def test_long_chunk_text_is_never_shortened() -> None:
+    """Sampling caps how many chunks come back, never what is inside one."""
+    content = "x" * 1100
+    result = make_result(chunks=[make_chunk(content=content)])
 
     body = client_with(FakeConfluenceService(result)).post(
         ENDPOINT, json=payload()
     ).json()
 
-    assert body["sample_chunks"][0]["content"].endswith("... [truncated]")
+    assert body["sample_chunks"][0]["content"] == content
 
 
 def test_short_chunk_text_is_left_alone() -> None:
@@ -487,7 +484,7 @@ def test_full_returns_every_page_and_chunk() -> None:
 
 
 def test_full_leaves_chunk_text_untouched() -> None:
-    content = "y" * (CHUNK_CONTENT_PREVIEW_CHARS + 500)
+    content = "y" * 1100
     result = make_result(chunks=[make_chunk(content=content)])
 
     body = client_with(FakeConfluenceService(result)).post(
@@ -660,26 +657,16 @@ def test_counts_report_the_embedding_tally() -> None:
     }
 
 
-def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+def test_a_chunk_carries_its_whole_vector() -> None:
+    """No preview, no flag to set - an embedded chunk arrives with its vector."""
     body = client_with(FakeConfluenceService(embedded_result())).post(
         ENDPOINT, json=payload()
     ).json()
 
     chunk = body["sample_chunks"][0]
-    assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    assert chunk["embedding_dimensions"] == 1536
-    assert chunk["embedding_model"] == EMBEDDING_MODEL
-
-
-def test_full_vectors_are_returned_only_when_asked_for() -> None:
-    body = client_with(FakeConfluenceService(embedded_result())).post(
-        ENDPOINT, json=payload(include_embeddings=True)
-    ).json()
-
-    chunk = body["sample_chunks"][0]
     assert len(chunk["embedding"]) == 1536
-    assert chunk["embedding_preview"] is None
+    assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert chunk["embedding_model"] == EMBEDDING_MODEL
 
 
 def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
@@ -694,8 +681,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
 
     chunk = body["sample_chunks"][0]
     assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] is None
-    assert chunk["embedding_dimensions"] is None
+    assert chunk["embedding_model"] is None
 
 
 def test_an_embedding_failure_maps_to_502() -> None:

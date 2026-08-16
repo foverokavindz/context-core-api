@@ -16,14 +16,10 @@ from app.ingestion.slack_ingestion_service import (
     SlackIngestionService,
 )
 from app.models.embedding_counts import EmbeddingCounts
-from app.models.ingest_response import EMBEDDING_PREVIEW_VALUES
-from app.models.slack_chunk import SlackChunk
 from app.models.slack_request import SlackIngestRequest
 from app.models.slack_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_MESSAGES_LIMIT,
-    SlackChunkSample,
     SlackIngestResponse,
     SlackMessageError,
 )
@@ -72,22 +68,16 @@ def ingest_channel(
         max_messages=request.max_messages,
         embed=request.embed,
     )
-    return to_response(
-        result, full=request.full, include_embeddings=request.include_embeddings
-    )
+    return to_response(result, full=request.full)
 
 
 def to_response(
-    result: SlackIngestionResult,
-    *,
-    full: bool = False,
-    include_embeddings: bool = False,
+    result: SlackIngestionResult, *, full: bool = False
 ) -> SlackIngestResponse:
     """Project the internal result onto the HTTP response.
 
-    The pipeline always processes the whole run; `full` only decides how much of
-    that result is serialised, and `include_embeddings` whether a chunk's vector
-    is shown whole or as its first few values. Neither affects `truncated`,
+    The pipeline always processes the whole run; `full` only decides how many of
+    the messages and chunks are serialised, and does not affect `truncated`,
     which reports whether the *ingestion* saw the whole channel.
 
     Public rather than private because the background pipeline serialises its
@@ -111,49 +101,9 @@ def to_response(
             truncated_inputs=result.embedding_truncated_inputs,
         ),
         resource_files=result.messages[:message_limit],
-        sample_chunks=[
-            _to_sample(chunk, full=full, include_embeddings=include_embeddings)
-            for chunk in result.chunks[:chunk_limit]
-        ],
+        sample_chunks=result.chunks[:chunk_limit],
         errors=[
             SlackMessageError(message=subject, reason=reason)
             for subject, reason in result.errors
         ],
     )
-
-
-def _to_sample(
-    chunk: SlackChunk, *, full: bool, include_embeddings: bool
-) -> SlackChunkSample:
-    """Project one chunk, shortening its text and its vector for display."""
-    return SlackChunkSample(
-        channel_id=chunk.channel_id,
-        message_ts=chunk.message_ts,
-        author_id=chunk.author_id,
-        content=chunk.content if full else _preview(chunk.content),
-        embedding=chunk.embedding if include_embeddings else None,
-        embedding_preview=(
-            None
-            if chunk.embedding is None or include_embeddings
-            else chunk.embedding[:EMBEDDING_PREVIEW_VALUES]
-        ),
-        # Taken from the vector in hand rather than from the run's summary, so a
-        # chunk that somehow missed the embedding pass reads as null here
-        # instead of borrowing the width of the ones that did not.
-        embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
-        embedding_model=chunk.embedding_model,
-        team_id=chunk.team_id,
-        department_id=chunk.department_id,
-        access_scope=chunk.access_scope,
-    )
-
-
-def _preview(content: str) -> str:
-    """Shorten a chunk's text for display.
-
-    Only the response is shortened - the SlackChunk objects the pipeline
-    produced still hold the complete text.
-    """
-    if len(content) <= CHUNK_CONTENT_PREVIEW_CHARS:
-        return content
-    return content[:CHUNK_CONTENT_PREVIEW_CHARS] + "\n... [truncated]"

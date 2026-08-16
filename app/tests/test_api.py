@@ -22,12 +22,7 @@ from app.core.exceptions import (
 from app.ingestion.ingestion_service import IngestionResult
 from app.main import app
 from app.models.code_chunk import CodeChunk
-from app.models.ingest_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
-    EMBEDDING_PREVIEW_VALUES,
-    SAMPLE_CHUNKS_LIMIT,
-    SAMPLE_FILES_LIMIT,
-)
+from app.models.ingest_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_FILES_LIMIT
 from app.models.repository_file import RepositoryFile
 
 TOKEN = "ghp_secret_value_that_must_never_be_echoed"
@@ -235,8 +230,9 @@ def test_response_samples_rather_than_returning_everything() -> None:
     assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
-def test_long_chunk_content_is_truncated_in_the_response() -> None:
-    long_source = "x" * (CHUNK_CONTENT_PREVIEW_CHARS + 500)
+def test_chunk_content_is_never_truncated() -> None:
+    """Sampling caps how many chunks come back, never what is inside one."""
+    long_source = "x" * 1100
     result = make_result(chunks=0)
     result.chunks.append(make_chunk(0, content=long_source))
 
@@ -245,9 +241,7 @@ def test_long_chunk_content_is_truncated_in_the_response() -> None:
         json={"token": TOKEN, "repository": "my-org/backend"},
     ).json()
 
-    content = body["chunks"][0]["content"]
-    assert len(content) < len(long_source)
-    assert content.endswith("[truncated]")
+    assert body["chunks"][0]["content"] == long_source
 
 
 def test_full_returns_every_file_and_chunk() -> None:
@@ -264,8 +258,8 @@ def test_full_returns_every_file_and_chunk() -> None:
     assert body["generated_chunks"] == 100
 
 
-def test_full_leaves_chunk_content_untruncated() -> None:
-    long_source = "x" * (CHUNK_CONTENT_PREVIEW_CHARS + 500)
+def test_full_leaves_chunk_content_whole_too() -> None:
+    long_source = "x" * 1100
     result = make_result(chunks=0)
     result.chunks.append(make_chunk(0, content=long_source))
 
@@ -275,7 +269,6 @@ def test_full_leaves_chunk_content_untruncated() -> None:
     ).json()
 
     assert body["chunks"][0]["content"] == long_source
-    assert "[truncated]" not in body["chunks"][0]["content"]
 
 
 def test_sampling_is_still_the_default() -> None:
@@ -338,7 +331,8 @@ def test_counts_report_the_whole_funnel_including_embeddings() -> None:
     }
 
 
-def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+def test_a_chunk_carries_its_whole_vector() -> None:
+    """No preview, no flag to set - an embedded chunk arrives with its vector."""
     service = FakeService(make_result(chunks=1))
     body = client_with(service).post(
         "/api/v1/github/ingest",
@@ -346,26 +340,8 @@ def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
     ).json()
 
     chunk = body["chunks"][0]
-    assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] == [0.0] * EMBEDDING_PREVIEW_VALUES
-    assert chunk["embedding_dimensions"] == 1536
+    assert chunk["embedding"] == [0.0] * 1536
     assert chunk["embedding_model"] == "text-embedding-3-small"
-
-
-def test_full_vectors_are_returned_only_when_asked_for() -> None:
-    service = FakeService(make_result(chunks=1))
-    body = client_with(service).post(
-        "/api/v1/github/ingest",
-        json={
-            "token": TOKEN,
-            "repository": "my-org/backend",
-            "include_embeddings": True,
-        },
-    ).json()
-
-    chunk = body["chunks"][0]
-    assert len(chunk["embedding"]) == 1536
-    assert chunk["embedding_preview"] is None
 
 
 def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
@@ -382,8 +358,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
 
     chunk = body["chunks"][0]
     assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] is None
-    assert chunk["embedding_dimensions"] is None
+    assert chunk["embedding_model"] is None
 
 
 def test_an_embedding_failure_maps_to_502() -> None:

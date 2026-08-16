@@ -35,11 +35,7 @@ from app.main import app
 from app.models.slack_chunk import SlackChunk
 from app.models.slack_message import SlackMessage
 from app.models.slack_request import SlackIngestRequest
-from app.models.slack_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
-    SAMPLE_CHUNKS_LIMIT,
-    SAMPLE_MESSAGES_LIMIT,
-)
+from app.models.slack_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_MESSAGES_LIMIT
 
 ENDPOINT = "/api/v1/slack/ingest"
 
@@ -207,11 +203,9 @@ def test_the_sample_chunks_carry_their_fields() -> None:
         "message_ts": TS,
         "author_id": USER,
         "content": "We should update the authentication flow.",
-        # This fixture's chunks were never embedded, so all four vector fields
-        # read as null rather than as an empty vector.
+        # This fixture's chunks were never embedded, so both vector fields read
+        # as null rather than as an empty vector.
         "embedding": None,
-        "embedding_preview": None,
-        "embedding_dimensions": None,
         "embedding_model": None,
         # Unset for the same reason the message's are, one test up.
         "team_id": None,
@@ -464,19 +458,14 @@ def test_truncated_is_unaffected_by_full() -> None:
     assert body["truncated"] is True
 
 
-def test_long_chunk_text_is_shortened_for_display() -> None:
-    chunk = make_chunk(content="x" * (CHUNK_CONTENT_PREVIEW_CHARS + 500))
-    result = make_result(chunks=[chunk])
+def test_long_chunk_text_is_never_shortened() -> None:
+    """Sampling caps how many chunks come back, never what is inside one."""
+    content = "x" * 1100
+    result = make_result(chunks=[make_chunk(content=content)])
 
     body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
 
-    assert body["sample_chunks"][0]["content"].endswith("... [truncated]")
-
-
-def test_short_chunk_text_is_left_alone() -> None:
-    body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
-
-    assert not body["sample_chunks"][0]["content"].endswith("... [truncated]")
+    assert body["sample_chunks"][0]["content"] == content
 
 
 # --------------------------------------------------------------------- full
@@ -497,7 +486,7 @@ def test_full_returns_every_message_and_chunk() -> None:
 
 
 def test_full_leaves_chunk_text_untouched() -> None:
-    content = "y" * (CHUNK_CONTENT_PREVIEW_CHARS + 500)
+    content = "y" * 1100
     result = make_result(chunks=[make_chunk(content=content)])
 
     body = client_with(FakeSlackService(result)).post(
@@ -631,26 +620,16 @@ def test_counts_report_the_embedding_tally() -> None:
     }
 
 
-def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+def test_a_chunk_carries_its_whole_vector() -> None:
+    """No preview, no flag to set - an embedded chunk arrives with its vector."""
     body = client_with(FakeSlackService(embedded_result())).post(
         ENDPOINT, json=payload()
     ).json()
 
     chunk = body["sample_chunks"][0]
-    assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    assert chunk["embedding_dimensions"] == 1536
-    assert chunk["embedding_model"] == EMBEDDING_MODEL
-
-
-def test_full_vectors_are_returned_only_when_asked_for() -> None:
-    body = client_with(FakeSlackService(embedded_result())).post(
-        ENDPOINT, json=payload(include_embeddings=True)
-    ).json()
-
-    chunk = body["sample_chunks"][0]
     assert len(chunk["embedding"]) == 1536
-    assert chunk["embedding_preview"] is None
+    assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert chunk["embedding_model"] == EMBEDDING_MODEL
 
 
 def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
@@ -665,8 +644,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
 
     chunk = body["sample_chunks"][0]
     assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] is None
-    assert chunk["embedding_dimensions"] is None
+    assert chunk["embedding_model"] is None
 
 
 def test_an_embedding_failure_maps_to_502() -> None:

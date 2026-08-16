@@ -16,14 +16,10 @@ from app.ingestion.jira_ingestion_service import (
     JiraIngestionService,
 )
 from app.models.embedding_counts import EmbeddingCounts
-from app.models.ingest_response import EMBEDDING_PREVIEW_VALUES
-from app.models.jira_chunk import JiraChunk
 from app.models.jira_request import JiraIngestRequest
 from app.models.jira_response import (
-    CHUNK_CONTENT_PREVIEW_CHARS,
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_ISSUES_LIMIT,
-    JiraChunkSample,
     JiraIngestResponse,
     JiraIssueError,
 )
@@ -74,22 +70,16 @@ def ingest_project(
         max_issues=request.max_issues,
         embed=request.embed,
     )
-    return to_response(
-        result, full=request.full, include_embeddings=request.include_embeddings
-    )
+    return to_response(result, full=request.full)
 
 
 def to_response(
-    result: JiraIngestionResult,
-    *,
-    full: bool = False,
-    include_embeddings: bool = False,
+    result: JiraIngestionResult, *, full: bool = False
 ) -> JiraIngestResponse:
     """Project the internal result onto the HTTP response.
 
     The pipeline always processes the whole project; `full` only decides how
-    much of that result is serialised, and `include_embeddings` whether a
-    chunk's vector is shown whole or as its first few values. Neither affects
+    many of the issues and chunks are serialised, and does not affect
     `truncated`, which reports whether the *ingestion* saw everything.
 
     Public rather than private because the background pipeline serialises its
@@ -115,50 +105,8 @@ def to_response(
             truncated_inputs=result.embedding_truncated_inputs,
         ),
         resource_files=result.issues[:issue_limit],
-        sample_chunks=[
-            _to_sample(chunk, full=full, include_embeddings=include_embeddings)
-            for chunk in result.chunks[:chunk_limit]
-        ],
+        sample_chunks=result.chunks[:chunk_limit],
         errors=[
             JiraIssueError(issue=key, reason=reason) for key, reason in result.errors
         ],
     )
-
-
-def _to_sample(
-    chunk: JiraChunk, *, full: bool, include_embeddings: bool
-) -> JiraChunkSample:
-    """Project one chunk, shortening its text and its vector for display."""
-    return JiraChunkSample(
-        key=chunk.key,
-        issue_type=chunk.issue_type,
-        summary=chunk.summary,
-        status=chunk.status,
-        parent_key=chunk.parent_key,
-        content=chunk.content if full else _preview(chunk.content),
-        embedding=chunk.embedding if include_embeddings else None,
-        embedding_preview=(
-            None
-            if chunk.embedding is None or include_embeddings
-            else chunk.embedding[:EMBEDDING_PREVIEW_VALUES]
-        ),
-        # Taken from the vector in hand rather than from the run's summary, so a
-        # chunk that somehow missed the embedding pass reads as null here
-        # instead of borrowing the width of the ones that did not.
-        embedding_dimensions=None if chunk.embedding is None else len(chunk.embedding),
-        embedding_model=chunk.embedding_model,
-        team_id=chunk.team_id,
-        department_id=chunk.department_id,
-        access_scope=chunk.access_scope,
-    )
-
-
-def _preview(content: str) -> str:
-    """Shorten a chunk's text for display.
-
-    Only the response is shortened - the JiraChunk objects the pipeline produced
-    still hold the complete text.
-    """
-    if len(content) <= CHUNK_CONTENT_PREVIEW_CHARS:
-        return content
-    return content[:CHUNK_CONTENT_PREVIEW_CHARS] + "\n... [truncated]"

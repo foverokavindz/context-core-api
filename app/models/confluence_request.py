@@ -77,12 +77,6 @@ class ConfluenceIngestRequest(BaseModel):
         "flatten and chunk without spending embedding quota - the response is "
         "the same shape either way, with null vectors.",
     )
-    include_embeddings: bool = Field(
-        default=False,
-        description="Return each chunk's complete vector instead of the first "
-        "few values. 1536 floats per chunk adds up fast - expect a much larger "
-        "response on a real space.",
-    )
 
     @field_validator("site_url")
     @classmethod

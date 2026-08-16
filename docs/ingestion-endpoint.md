@@ -135,9 +135,8 @@ nothing does that yet.
 
 `result` is the same JSON the source's own endpoint returns, through the same
 projection — one definition of what a run looks like, whether it arrived over
-HTTP or was written to a file. It is written with every item and chunk, and with
-vectors shown as previews: 1536 floats per chunk turns a file you can read into
-one you cannot.
+HTTP or was written to a file. It is written with every item and every chunk,
+each carrying its complete text and its complete vector.
 
 **The `source` block never contains `token`.** It is assembled field by field
 rather than dumped, precisely so that column cannot ride along by accident.

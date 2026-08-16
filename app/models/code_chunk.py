@@ -18,6 +18,8 @@ class CodeChunk(PermissionScope):
     commit_sha: str
 
     file_path: str
+    file_name: str | None = None
+    extension: str | None = None
     file_sha: str | None = None
 
     language: str

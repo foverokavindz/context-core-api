@@ -40,10 +40,10 @@ app = FastAPI(
     ),
 )
 
-app.include_router(github_router)
-app.include_router(jira_router)
-app.include_router(confluence_router)
-app.include_router(slack_router)
+# app.include_router(github_router)
+# app.include_router(jira_router)
+# app.include_router(confluence_router)
+# app.include_router(slack_router)
 
 app.include_router(ingestion_router)
 

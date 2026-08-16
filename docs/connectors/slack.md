@@ -335,7 +335,7 @@ Sampling never sets `truncated`.
     text — reaction *metadata* is ignored, what people wrote is not.
 11. Check that messages come back oldest-first.
 12. Call it again with `"full": true` and confirm every message and every chunk
-    comes back, with chunk text no longer ending in `... [truncated]`.
+    comes back, rather than the sampled ten and twenty.
 13. Set `max_messages` below the channel's history and confirm `truncated: true`
     **and** that what came back is the most recent end of the conversation; set
     it at or above and confirm `truncated: false`.

@@ -220,7 +220,8 @@ def test_full_returns_every_issue_and_chunk() -> None:
     assert len(body["sample_chunks"]) == 40
 
 
-def test_long_chunk_content_is_shortened_in_the_response() -> None:
+def test_long_chunk_content_is_never_shortened() -> None:
+    """Sampling caps how many chunks come back, never what is inside one."""
     service = FakeJiraService(
         JiraIngestionResult(
             site_url=SITE, project_key=PROJECT, retrieved_issues=1,
@@ -230,8 +231,7 @@ def test_long_chunk_content_is_shortened_in_the_response() -> None:
 
     body = client_with(service).post(ENDPOINT, json=payload()).json()
 
-    assert body["sample_chunks"][0]["content"].endswith("... [truncated]")
-    assert len(body["sample_chunks"][0]["content"]) < 2000
+    assert body["sample_chunks"][0]["content"] == "x" * 2000
 
 
 def test_full_leaves_chunk_content_untruncated() -> None:
@@ -481,26 +481,16 @@ def test_counts_report_the_embedding_tally() -> None:
     }
 
 
-def test_a_chunk_shows_a_preview_of_its_vector_by_default() -> None:
+def test_a_chunk_carries_its_whole_vector() -> None:
+    """No preview, no flag to set - an embedded chunk arrives with its vector."""
     body = client_with(FakeJiraService(embedded_result())).post(
         ENDPOINT, json=payload()
     ).json()
 
     chunk = body["sample_chunks"][0]
-    assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    assert chunk["embedding_dimensions"] == 1536
-    assert chunk["embedding_model"] == EMBEDDING_MODEL
-
-
-def test_full_vectors_are_returned_only_when_asked_for() -> None:
-    body = client_with(FakeJiraService(embedded_result())).post(
-        ENDPOINT, json=payload(include_embeddings=True)
-    ).json()
-
-    chunk = body["sample_chunks"][0]
     assert len(chunk["embedding"]) == 1536
-    assert chunk["embedding_preview"] is None
+    assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    assert chunk["embedding_model"] == EMBEDDING_MODEL
 
 
 def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
@@ -515,8 +505,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
 
     chunk = body["sample_chunks"][0]
     assert chunk["embedding"] is None
-    assert chunk["embedding_preview"] is None
-    assert chunk["embedding_dimensions"] is None
+    assert chunk["embedding_model"] is None
 
 
 def test_an_embedding_failure_maps_to_502() -> None:

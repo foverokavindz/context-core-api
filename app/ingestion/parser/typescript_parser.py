@@ -525,6 +525,8 @@ class TypeScriptTreeSitterParser(BaseParser):
             branch=file.branch,
             commit_sha=file.commit_sha,
             file_path=file.path,
+            file_name=file.file_name,
+            extension=file.extension,
             file_sha=file.file_sha,
             language=file.language or "unknown",
             symbol_type=symbol_type,
