@@ -31,5 +31,5 @@ class SlackIngestResponse(BaseModel):
 
     resource_files: list[SlackMessage] = []
 
-    sample_chunks: list[SlackChunk] = []
+    chunks: list[SlackChunk] = []
     errors: list[SlackMessageError] = []

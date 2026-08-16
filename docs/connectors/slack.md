@@ -114,7 +114,7 @@ Note that this stage does **not** yet embed or persist Slack chunks.
 		}
 	],
 
-	"sample_chunks": [
+	"chunks": [
 		{
 			"channel_id": "C0123456789",
 			"message_ts": "1754810101.100100",
@@ -328,7 +328,7 @@ Sampling never sets `truncated`.
    the channel.
 8. Confirm no `channel_join`, `channel_leave` or topic-change text appears
    anywhere in the response.
-9. Check that `sample_chunks[i].content` is the message text *alone* — no `C0…`,
+9. Check that `chunks[i].content` is the message text *alone* — no `C0…`,
    no `U0…`, no timestamp in the prose. Those belong in the fields beside it.
 10. React to a message with an emoji and re-run: the response must be identical.
     Post a message containing `:tada:` and confirm the shortcode survives in the

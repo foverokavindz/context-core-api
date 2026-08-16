@@ -210,7 +210,7 @@ false`, which only shortens the *response*. Sampling never sets `truncated`.
    `child_issues`.
 5. Check that descriptions read as plain text — no `{"type": "doc" ...}`
    anywhere in the response.
-6. Check that an Epic's `sample_chunks` entry lists its children's *keys* and
+6. Check that an Epic's `chunks` entry lists its children's *keys* and
    none of their description text.
 7. Set `max_issues` below the project size and confirm `truncated: true`; set it
    at or above and confirm `truncated: false`.

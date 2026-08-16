@@ -33,5 +33,5 @@ class JiraIngestResponse(BaseModel):
 
     resource_files: list[JiraIssue] = []
 
-    sample_chunks: list[JiraChunk] = []
+    chunks: list[JiraChunk] = []
     errors: list[JiraIssueError] = []

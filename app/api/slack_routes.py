@@ -101,7 +101,7 @@ def to_response(
             truncated_inputs=result.embedding_truncated_inputs,
         ),
         resource_files=result.messages[:message_limit],
-        sample_chunks=result.chunks[:chunk_limit],
+        chunks=result.chunks[:chunk_limit],
         errors=[
             SlackMessageError(message=subject, reason=reason)
             for subject, reason in result.errors

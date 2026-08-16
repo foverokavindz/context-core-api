@@ -106,7 +106,7 @@ def to_response(
             truncated_inputs=result.embedding_truncated_inputs,
         ),
         resource_files=result.pages[:page_limit],
-        sample_chunks=result.chunks[:chunk_limit],
+        chunks=result.chunks[:chunk_limit],
         errors=[
             ConfluencePageError(page=page, reason=reason)
             for page, reason in result.errors

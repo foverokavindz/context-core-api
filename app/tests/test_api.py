@@ -183,7 +183,7 @@ def test_branch_is_optional() -> None:
     assert service.calls[0]["branch"] is None
 
 
-def test_sample_chunks_carry_the_symbol_detail() -> None:
+def test_chunks_carry_the_symbol_detail() -> None:
     service = FakeService(make_result(chunks=1))
     body = client_with(service).post(
         "/api/v1/github/ingest",

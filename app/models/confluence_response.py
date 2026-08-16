@@ -35,5 +35,5 @@ class ConfluenceIngestResponse(BaseModel):
 
     resource_files: list[ConfluencePage] = []
 
-    sample_chunks: list[ConfluenceChunk] = []
+    chunks: list[ConfluenceChunk] = []
     errors: list[ConfluencePageError] = []

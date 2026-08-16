@@ -94,7 +94,7 @@ in the three fields, **Execute**.
 		}
 	],
 
-	"sample_chunks": [
+	"chunks": [
 		{
 			"repository": "my-org/backend",
 			"branch": "main",
@@ -322,6 +322,6 @@ takes a tree SHA — the commit SHA is what gets stamped onto every file and chu
    use the `curl` command above.
 3. Check that `discovered_files` is larger than `accepted_files` (the filter is
    working), that `.ts` and `.tsx` paths appear in `resource_files`, and that
-   `sample_chunks` contains a `method` with a `parent_symbol`.
+   `chunks` contains a `method` with a `parent_symbol`.
 4. Check the server log — it reports the repository, branch, commit and counts,
    and contains no credential.

@@ -105,7 +105,7 @@ def to_response(
             truncated_inputs=result.embedding_truncated_inputs,
         ),
         resource_files=result.issues[:issue_limit],
-        sample_chunks=result.chunks[:chunk_limit],
+        chunks=result.chunks[:chunk_limit],
         errors=[
             JiraIssueError(issue=key, reason=reason) for key, reason in result.errors
         ],

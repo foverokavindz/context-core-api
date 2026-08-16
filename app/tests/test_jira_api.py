@@ -178,10 +178,10 @@ def test_issues_carry_the_relationships() -> None:
     assert "child_issues" in body["resource_files"][0]
 
 
-def test_sample_chunks_carry_the_issue_detail() -> None:
+def test_chunks_carry_the_issue_detail() -> None:
     body = client_with(FakeJiraService()).post(ENDPOINT, json=payload()).json()
 
-    sample = body["sample_chunks"][0]
+    sample = body["chunks"][0]
     assert sample["key"] == "TRACK-0"
     assert sample["issue_type"] == "Story"
     assert sample["parent_key"] == "TRACK-10"
@@ -208,7 +208,7 @@ def test_the_response_samples_rather_than_returning_everything() -> None:
     assert body["retrieved_issues"] == 40
     assert body["generated_chunks"] == 40
     assert len(body["resource_files"]) == 10
-    assert len(body["sample_chunks"]) == 20
+    assert len(body["chunks"]) == 20
 
 
 def test_full_returns_every_issue_and_chunk() -> None:
@@ -217,7 +217,7 @@ def test_full_returns_every_issue_and_chunk() -> None:
     body = client_with(service).post(ENDPOINT, json=payload(full=True)).json()
 
     assert len(body["resource_files"]) == 40
-    assert len(body["sample_chunks"]) == 40
+    assert len(body["chunks"]) == 40
 
 
 def test_long_chunk_content_is_never_shortened() -> None:
@@ -231,7 +231,7 @@ def test_long_chunk_content_is_never_shortened() -> None:
 
     body = client_with(service).post(ENDPOINT, json=payload()).json()
 
-    assert body["sample_chunks"][0]["content"] == "x" * 2000
+    assert body["chunks"][0]["content"] == "x" * 2000
 
 
 def test_full_leaves_chunk_content_untruncated() -> None:
@@ -244,7 +244,7 @@ def test_full_leaves_chunk_content_untruncated() -> None:
 
     body = client_with(service).post(ENDPOINT, json=payload(full=True)).json()
 
-    assert body["sample_chunks"][0]["content"] == "x" * 2000
+    assert body["chunks"][0]["content"] == "x" * 2000
 
 
 def test_a_truncated_run_is_flagged() -> None:
@@ -487,7 +487,7 @@ def test_a_chunk_carries_its_whole_vector() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert len(chunk["embedding"]) == 1536
     assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     assert chunk["embedding_model"] == EMBEDDING_MODEL
@@ -503,7 +503,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
     assert body["counts"]["embedding_batches"] == 0
     assert body["counts"]["embedding_model"] is None
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert chunk["embedding"] is None
     assert chunk["embedding_model"] is None
 

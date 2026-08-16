@@ -195,10 +195,10 @@ def test_the_messages_carry_their_fields() -> None:
     }
 
 
-def test_the_sample_chunks_carry_their_fields() -> None:
+def test_the_chunks_carry_their_fields() -> None:
     body = client_with(FakeSlackService()).post(ENDPOINT, json=payload()).json()
 
-    assert body["sample_chunks"][0] == {
+    assert body["chunks"][0] == {
         "channel_id": CHANNEL,
         "message_ts": TS,
         "author_id": USER,
@@ -221,7 +221,7 @@ def test_an_empty_channel_still_answers_200() -> None:
 
     assert response.status_code == 200
     assert response.json()["resource_files"] == []
-    assert response.json()["sample_chunks"] == []
+    assert response.json()["chunks"] == []
 
 
 def test_errors_are_reported_as_subject_and_reason() -> None:
@@ -411,7 +411,7 @@ def test_the_message_list_is_sampled_by_default() -> None:
     body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
 
     assert len(body["resource_files"]) == SAMPLE_MESSAGES_LIMIT
-    assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
+    assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
 def test_sampling_leaves_the_counts_alone() -> None:
@@ -465,7 +465,7 @@ def test_long_chunk_text_is_never_shortened() -> None:
 
     body = client_with(FakeSlackService(result)).post(ENDPOINT, json=payload()).json()
 
-    assert body["sample_chunks"][0]["content"] == content
+    assert body["chunks"][0]["content"] == content
 
 
 # --------------------------------------------------------------------- full
@@ -482,7 +482,7 @@ def test_full_returns_every_message_and_chunk() -> None:
     ).json()
 
     assert len(body["resource_files"]) == 40
-    assert len(body["sample_chunks"]) == 40
+    assert len(body["chunks"]) == 40
 
 
 def test_full_leaves_chunk_text_untouched() -> None:
@@ -493,7 +493,7 @@ def test_full_leaves_chunk_text_untouched() -> None:
         ENDPOINT, json=payload(full=True)
     ).json()
 
-    assert body["sample_chunks"][0]["content"] == content
+    assert body["chunks"][0]["content"] == content
 
 
 def test_full_does_not_change_the_counts() -> None:
@@ -626,7 +626,7 @@ def test_a_chunk_carries_its_whole_vector() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert len(chunk["embedding"]) == 1536
     assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     assert chunk["embedding_model"] == EMBEDDING_MODEL
@@ -642,7 +642,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
     assert body["counts"]["embedding_batches"] == 0
     assert body["counts"]["embedding_model"] is None
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert chunk["embedding"] is None
     assert chunk["embedding_model"] is None
 

@@ -409,7 +409,7 @@ def test_the_page_list_is_sampled_by_default() -> None:
     ).json()
 
     assert len(body["resource_files"]) == SAMPLE_PAGES_LIMIT
-    assert len(body["sample_chunks"]) == SAMPLE_CHUNKS_LIMIT
+    assert len(body["chunks"]) == SAMPLE_CHUNKS_LIMIT
 
 
 def test_sampling_does_not_change_the_counts() -> None:
@@ -453,7 +453,7 @@ def test_long_chunk_text_is_never_shortened() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    assert body["sample_chunks"][0]["content"] == content
+    assert body["chunks"][0]["content"] == content
 
 
 def test_short_chunk_text_is_left_alone() -> None:
@@ -463,7 +463,7 @@ def test_short_chunk_text_is_left_alone() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    assert body["sample_chunks"][0]["content"] == "Space: TrackIt (TR)"
+    assert body["chunks"][0]["content"] == "Space: TrackIt (TR)"
 
 
 # ---------------------------------------------------------------- full=true
@@ -480,7 +480,7 @@ def test_full_returns_every_page_and_chunk() -> None:
     ).json()
 
     assert len(body["resource_files"]) == 40
-    assert len(body["sample_chunks"]) == 40
+    assert len(body["chunks"]) == 40
 
 
 def test_full_leaves_chunk_text_untouched() -> None:
@@ -491,7 +491,7 @@ def test_full_leaves_chunk_text_untouched() -> None:
         ENDPOINT, json=payload(full=True)
     ).json()
 
-    assert body["sample_chunks"][0]["content"] == content
+    assert body["chunks"][0]["content"] == content
 
 
 def test_full_does_not_change_the_counts() -> None:
@@ -663,7 +663,7 @@ def test_a_chunk_carries_its_whole_vector() -> None:
         ENDPOINT, json=payload()
     ).json()
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert len(chunk["embedding"]) == 1536
     assert chunk["embedding"][:8] == [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
     assert chunk["embedding_model"] == EMBEDDING_MODEL
@@ -679,7 +679,7 @@ def test_embed_false_is_passed_through_and_leaves_vectors_null() -> None:
     assert body["counts"]["embedding_batches"] == 0
     assert body["counts"]["embedding_model"] is None
 
-    chunk = body["sample_chunks"][0]
+    chunk = body["chunks"][0]
     assert chunk["embedding"] is None
     assert chunk["embedding_model"] is None
 
