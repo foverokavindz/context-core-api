@@ -15,7 +15,7 @@ import pytest
 
 from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 from app.ingestion.slack_chunker import SlackChunker
-from app.models.slack_message import SlackMessage
+from app.models.slack.message import SlackMessage
 
 CHANNEL = "C0123456789"
 USER = "U0000000001"

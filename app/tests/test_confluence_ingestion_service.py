@@ -323,7 +323,7 @@ def test_the_space_key_reaches_the_connector() -> None:
 
 
 def test_the_service_default_page_cap_is_applied() -> None:
-    from app.models.confluence_response import MAX_PAGES_PER_INGESTION
+    from app.models.confluence.response import MAX_PAGES_PER_INGESTION
 
     connector = FakeConfluenceConnector([make_raw("1")])
 

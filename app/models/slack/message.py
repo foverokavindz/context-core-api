@@ -1,5 +1,5 @@
 from app.entities.knowledge_sources.resource_type import ResourceType
-from app.models.permission_scope import PermissionScope
+from app.models.common.permission_scope import PermissionScope
 
 
 class SlackMessage(PermissionScope):

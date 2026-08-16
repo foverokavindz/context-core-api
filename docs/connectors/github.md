@@ -123,7 +123,7 @@ in the three fields, **Execute**.
 ```
 
 The counts are complete; the lists are samples. A real repository would return
-megabytes of source otherwise. Limits live in `app/models/ingest_response.py`:
+megabytes of source otherwise. Limits live in `app/models/github/response.py`:
 
 | Constant                  | Default | Meaning                       |
 | ------------------------- | ------- | ----------------------------- |

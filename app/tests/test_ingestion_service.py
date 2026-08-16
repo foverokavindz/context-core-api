@@ -13,7 +13,7 @@ from app.connectors.base import BaseSourceConnector, SourceSnapshot
 from app.core.exceptions import AuthenticationError, EmbeddingError
 from app.ingestion.embedding_service import EmbeddingRun
 from app.ingestion.ingestion_service import GitHubIngestionService
-from app.models.repository_file import RepositoryFile
+from app.models.github.file import RepositoryFile
 
 TOKEN = SecretStr("ghp_fake_token_for_tests_only")
 

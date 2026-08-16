@@ -14,7 +14,7 @@ on: one page in, one chunk out, however long the page is.
 import pytest
 
 from app.ingestion.confluence_chunker import NO_CONTENT_TEXT, ConfluenceChunker
-from app.models.confluence_page import ConfluencePage
+from app.models.confluence.page import ConfluencePage
 
 SPACE_KEY = "TR"
 SPACE_ID = "6422530"

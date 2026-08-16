@@ -27,9 +27,9 @@ from app.entities.data_sources.source_type import SourceType
 from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 from app.ingestion.ingestion_service import IngestionResult
 from app.main import app
-from app.models.code_chunk import CodeChunk
-from app.models.ingest_data_request import IngestDataRequest
-from app.models.repository_file import RepositoryFile
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
+from app.models.ingestion.request import IngestDataRequest
 from app.services import ingestion_service
 
 ENDPOINT = "/api/v1/ingestData"

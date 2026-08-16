@@ -45,7 +45,7 @@ would answer with a response buried in notices about ordinary Slack behaviour.
 import logging
 import re
 
-from app.models.slack_message import SlackMessage
+from app.models.slack.message import SlackMessage
 
 logger = logging.getLogger(__name__)
 

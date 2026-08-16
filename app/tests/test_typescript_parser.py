@@ -15,7 +15,7 @@ from app.ingestion.parser.typescript_parser import (
     SourceIndex,
     TypeScriptTreeSitterParser,
 )
-from app.models.repository_file import RepositoryFile
+from app.models.github.file import RepositoryFile
 
 
 def make_file(content: str, path: str = "src/example.ts") -> RepositoryFile:

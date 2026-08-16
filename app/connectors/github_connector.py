@@ -38,7 +38,7 @@ from app.core.exceptions import (
     RepositoryNotFoundError,
     SourceUnavailableError,
 )
-from app.models.repository_file import RepositoryFile, language_for_extension
+from app.models.github.file import RepositoryFile, language_for_extension
 
 logger = logging.getLogger(__name__)
 

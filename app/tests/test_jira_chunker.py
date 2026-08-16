@@ -8,7 +8,7 @@ regression should fail a test, not quietly change what a model sees.
 import pytest
 
 from app.ingestion.jira_chunker import NO_DESCRIPTION_TEXT, JiraChunker
-from app.models.jira_issue import JiraIssue
+from app.models.jira.issue import JiraIssue
 
 
 @pytest.fixture

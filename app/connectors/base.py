@@ -12,7 +12,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.models.repository_file import RepositoryFile
+from app.models.github.file import RepositoryFile
 
 # Decides whether a discovered path is worth fetching, given its path and its
 # size in bytes (None when the source does not report one).

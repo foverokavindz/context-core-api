@@ -52,26 +52,33 @@ app/
 │   ├── slack_ingestion_service.py       Slack orchestration
 │   ├── slack_parser.py           the only module that knows Slack's fields
 │   └── slack_chunker.py          one message -> one chunk
-├── models/
-│   ├── github_request.py         GitHubIngestRequest
-│   ├── repository_file.py        RepositoryFile  <- the GitHub boundary
-│   ├── code_chunk.py             CodeChunk
-│   ├── ingest_response.py        GitHub response DTOs + limits
-│   ├── jira_request.py           JiraIngestRequest
-│   ├── jira_issue.py             JiraIssue  <- the Jira boundary
-│   ├── jira_chunk.py             JiraChunk
-│   ├── jira_response.py          Jira response DTOs + limits
-│   ├── confluence_request.py     ConfluenceIngestRequest
-│   ├── confluence_page.py        ConfluencePage  <- the Confluence boundary
-│   ├── confluence_chunk.py       ConfluenceChunk
-│   ├── confluence_response.py    Confluence response DTOs + limits
-│   ├── slack_request.py          SlackIngestRequest
-│   ├── slack_message.py          SlackMessage  <- the Slack boundary
-│   ├── slack_chunk.py            SlackChunk
-│   ├── slack_response.py         Slack response DTOs + limits
-│   ├── permission_scope.py       PermissionScope  <- the one shared mixin
-│   ├── ingest_data_request.py    IngestDataRequest + REQUIRED_CONFIG_KEYS
-│   └── ingest_data_response.py   IngestStartedResponse
+├── models/                       one package per source, same four names in each
+│   ├── common/
+│   │   ├── permission_scope.py   PermissionScope  <- the one shared mixin
+│   │   └── embedding_counts.py   EmbeddingCounts
+│   ├── github/
+│   │   ├── request.py            GitHubIngestRequest
+│   │   ├── file.py               RepositoryFile  <- the GitHub boundary
+│   │   ├── chunk.py              CodeChunk
+│   │   └── response.py           GitHub response DTOs + limits
+│   ├── jira/
+│   │   ├── request.py            JiraIngestRequest
+│   │   ├── issue.py              JiraIssue  <- the Jira boundary
+│   │   ├── chunk.py              JiraChunk
+│   │   └── response.py           Jira response DTOs + limits
+│   ├── confluence/
+│   │   ├── request.py            ConfluenceIngestRequest
+│   │   ├── page.py               ConfluencePage  <- the Confluence boundary
+│   │   ├── chunk.py              ConfluenceChunk
+│   │   └── response.py           Confluence response DTOs + limits
+│   ├── slack/
+│   │   ├── request.py            SlackIngestRequest
+│   │   ├── message.py            SlackMessage  <- the Slack boundary
+│   │   ├── chunk.py              SlackChunk
+│   │   └── response.py           Slack response DTOs + limits
+│   └── ingestion/                the source-agnostic endpoint, not a connector
+│       ├── request.py            IngestDataRequest + REQUIRED_CONFIG_KEYS
+│       └── response.py           IngestStartedResponse
 ├── entities/                     the database layer — see entities.md
 │   ├── base.py                   Base, UUIDMixin, TimestampMixin
 │   └── organization/             departments, job titles, users

@@ -3,8 +3,8 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from app.entities.data_sources.source_type import SourceType
-from app.models.ingest_data_request import REQUIRED_CONFIG_KEYS, IngestDataRequest
-from app.models.ingest_data_response import IngestStartedResponse
+from app.models.ingestion.request import REQUIRED_CONFIG_KEYS, IngestDataRequest
+from app.models.ingestion.response import IngestStartedResponse
 from app.services.ingestion_service import start_ingestion
 
 logger = logging.getLogger(__name__)

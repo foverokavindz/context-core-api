@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.slack_chunk import SlackChunk
-from app.models.slack_message import SlackMessage
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.slack.chunk import SlackChunk
+from app.models.slack.message import SlackMessage
 
 SAMPLE_MESSAGES_LIMIT = 10
 SAMPLE_CHUNKS_LIMIT = 20

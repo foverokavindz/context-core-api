@@ -34,8 +34,8 @@ from here.
 
 import logging
 
-from app.models.slack_chunk import SlackChunk
-from app.models.slack_message import SlackMessage
+from app.models.slack.chunk import SlackChunk
+from app.models.slack.message import SlackMessage
 
 logger = logging.getLogger(__name__)
 

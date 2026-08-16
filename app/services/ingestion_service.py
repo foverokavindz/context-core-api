@@ -28,8 +28,8 @@ from app.background.pipeline.ingestion_pipeline import run_ingestion_pipeline
 from app.entities.data_sources.external_data_source import ExternalDataSource
 from app.entities.data_sources.source_status import SourceStatus
 from app.entities.data_sources.source_type import SourceType
-from app.models.ingest_data_request import IngestDataRequest
-from app.models.ingest_data_response import IngestStartedResponse
+from app.models.ingestion.request import IngestDataRequest
+from app.models.ingestion.response import IngestStartedResponse
 
 logger = logging.getLogger(__name__)
 

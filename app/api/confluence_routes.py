@@ -15,14 +15,14 @@ from app.ingestion.confluence_ingestion_service import (
     ConfluenceIngestionService,
 )
 from app.ingestion.embedding_service import ChunkEmbedder
-from app.models.confluence_request import ConfluenceIngestRequest
-from app.models.confluence_response import (
+from app.models.confluence.request import ConfluenceIngestRequest
+from app.models.confluence.response import (
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_PAGES_LIMIT,
     ConfluenceIngestResponse,
     ConfluencePageError,
 )
-from app.models.embedding_counts import EmbeddingCounts
+from app.models.common.embedding_counts import EmbeddingCounts
 
 logger = logging.getLogger(__name__)
 

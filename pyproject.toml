@@ -80,6 +80,12 @@ packages = [
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",
+    "app.models.common",
+    "app.models.confluence",
+    "app.models.github",
+    "app.models.ingestion",
+    "app.models.jira",
+    "app.models.slack",
     "app.services",
 ]
 

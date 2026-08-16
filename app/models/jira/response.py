@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.jira_chunk import JiraChunk
-from app.models.jira_issue import JiraIssue
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.jira.chunk import JiraChunk
+from app.models.jira.issue import JiraIssue
 
 SAMPLE_ISSUES_LIMIT = 10
 SAMPLE_CHUNKS_LIMIT = 20

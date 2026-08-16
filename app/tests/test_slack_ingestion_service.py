@@ -279,7 +279,7 @@ def test_the_connector_is_closed_when_the_run_fails() -> None:
 
 
 def test_the_service_default_message_cap_is_applied() -> None:
-    from app.models.slack_response import MAX_MESSAGES_PER_INGESTION
+    from app.models.slack.response import MAX_MESSAGES_PER_INGESTION
 
     connector = FakeSlackConnector([make_raw("1000.000100")])
 

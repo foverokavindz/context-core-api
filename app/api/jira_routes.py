@@ -15,9 +15,9 @@ from app.ingestion.jira_ingestion_service import (
     JiraIngestionResult,
     JiraIngestionService,
 )
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.jira_request import JiraIngestRequest
-from app.models.jira_response import (
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.jira.request import JiraIngestRequest
+from app.models.jira.response import (
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_ISSUES_LIMIT,
     JiraIngestResponse,

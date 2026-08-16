@@ -23,8 +23,8 @@ only dilute what the page actually says.
 
 import logging
 
-from app.models.confluence_chunk import ConfluenceChunk
-from app.models.confluence_page import ConfluencePage
+from app.models.confluence.chunk import ConfluenceChunk
+from app.models.confluence.page import ConfluencePage
 
 logger = logging.getLogger(__name__)
 

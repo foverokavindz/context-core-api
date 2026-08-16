@@ -1,6 +1,6 @@
 from pydantic import Field
 
-from app.models.permission_scope import PermissionScope
+from app.models.common.permission_scope import PermissionScope
 
 
 class JiraChunk(PermissionScope):

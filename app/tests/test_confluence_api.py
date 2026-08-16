@@ -27,10 +27,10 @@ from app.core.exceptions import (
 )
 from app.ingestion.confluence_ingestion_service import ConfluenceIngestionResult
 from app.main import app
-from app.models.confluence_chunk import ConfluenceChunk
-from app.models.confluence_page import ConfluencePage
-from app.models.confluence_request import ConfluenceIngestRequest
-from app.models.confluence_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_PAGES_LIMIT
+from app.models.confluence.chunk import ConfluenceChunk
+from app.models.confluence.page import ConfluencePage
+from app.models.confluence.request import ConfluenceIngestRequest
+from app.models.confluence.response import SAMPLE_CHUNKS_LIMIT, SAMPLE_PAGES_LIMIT
 
 ENDPOINT = "/api/v1/confluence/ingest"
 

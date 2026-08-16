@@ -18,10 +18,10 @@ from app.ingestion.embedding_service import (
     ChunkEmbedder,
     embed_into,
 )
-from app.models.code_chunk import CodeChunk
-from app.models.confluence_chunk import ConfluenceChunk
-from app.models.jira_chunk import JiraChunk
-from app.models.slack_chunk import SlackChunk
+from app.models.confluence.chunk import ConfluenceChunk
+from app.models.github.chunk import CodeChunk
+from app.models.jira.chunk import JiraChunk
+from app.models.slack.chunk import SlackChunk
 
 MODEL = "text-embedding-3-small"
 

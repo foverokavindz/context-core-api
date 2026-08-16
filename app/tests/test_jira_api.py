@@ -21,9 +21,9 @@ from app.core.exceptions import (
 )
 from app.ingestion.jira_ingestion_service import JiraIngestionResult
 from app.main import app
-from app.models.jira_chunk import JiraChunk
-from app.models.jira_issue import JiraIssue
-from app.models.jira_request import JiraIngestRequest
+from app.models.jira.chunk import JiraChunk
+from app.models.jira.issue import JiraIssue
+from app.models.jira.request import JiraIngestRequest
 
 SITE = "https://example.atlassian.net"
 EMAIL = "ingest@example.com"

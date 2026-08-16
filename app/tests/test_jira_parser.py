@@ -8,7 +8,7 @@ contract is that only a missing issue key is fatal.
 import pytest
 
 from app.ingestion.jira_parser import JiraParser
-from app.models.jira_issue import UNKNOWN_ISSUE_TYPE
+from app.models.jira.issue import UNKNOWN_ISSUE_TYPE
 
 
 @pytest.fixture

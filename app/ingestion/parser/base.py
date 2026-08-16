@@ -8,8 +8,8 @@ RepositoryFile, the parser does not care where it came from.
 
 from abc import ABC, abstractmethod
 
-from app.models.code_chunk import CodeChunk
-from app.models.repository_file import RepositoryFile
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
 
 
 class BaseParser(ABC):

@@ -15,9 +15,9 @@ from app.ingestion.slack_ingestion_service import (
     SlackIngestionResult,
     SlackIngestionService,
 )
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.slack_request import SlackIngestRequest
-from app.models.slack_response import (
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.slack.request import SlackIngestRequest
+from app.models.slack.response import (
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_MESSAGES_LIMIT,
     SlackIngestResponse,

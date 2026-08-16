@@ -26,9 +26,9 @@ from app.connectors.slack_connector import SlackConnector
 from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.ingestion.slack_chunker import SlackChunker
 from app.ingestion.slack_parser import SlackParser
-from app.models.slack_chunk import SlackChunk
-from app.models.slack_message import SlackMessage
-from app.models.slack_response import MAX_MESSAGES_PER_INGESTION
+from app.models.slack.chunk import SlackChunk
+from app.models.slack.message import SlackMessage
+from app.models.slack.response import MAX_MESSAGES_PER_INGESTION
 
 logger = logging.getLogger(__name__)
 

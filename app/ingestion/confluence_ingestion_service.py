@@ -26,9 +26,9 @@ from app.connectors.confluence_connector import ConfluenceConnector
 from app.ingestion.confluence_chunker import ConfluenceChunker
 from app.ingestion.confluence_parser import ConfluenceParser
 from app.ingestion.embedding_service import ChunkEmbedder, embed_into
-from app.models.confluence_chunk import ConfluenceChunk
-from app.models.confluence_page import ConfluencePage
-from app.models.confluence_response import MAX_PAGES_PER_INGESTION
+from app.models.confluence.chunk import ConfluenceChunk
+from app.models.confluence.page import ConfluencePage
+from app.models.confluence.response import MAX_PAGES_PER_INGESTION
 
 logger = logging.getLogger(__name__)
 

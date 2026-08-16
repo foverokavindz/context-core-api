@@ -41,8 +41,8 @@ import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Node, Parser
 
 from app.ingestion.parser.base import BaseParser
-from app.models.code_chunk import CodeChunk
-from app.models.repository_file import RepositoryFile
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
 
 logger = logging.getLogger(__name__)
 

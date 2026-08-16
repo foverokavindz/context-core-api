@@ -24,7 +24,7 @@ records it and moves on.
 import logging
 
 from app.ingestion.confluence_storage import storage_to_text
-from app.models.confluence_page import ConfluencePage
+from app.models.confluence.page import ConfluencePage
 
 logger = logging.getLogger(__name__)
 

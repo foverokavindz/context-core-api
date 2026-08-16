@@ -14,8 +14,8 @@ from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService
 from app.ingestion.jira_ingestion_service import JiraIngestionService
 from app.ingestion.slack_ingestion_service import SlackIngestionService
-from app.models.ingest_data_request import IngestDataRequest
-from app.models.permission_scope import PermissionScope
+from app.models.common.permission_scope import PermissionScope
+from app.models.ingestion.request import IngestDataRequest
 
 logger = logging.getLogger(__name__)
 

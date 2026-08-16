@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 
-from app.models.confluence_chunk import ConfluenceChunk
-from app.models.confluence_page import ConfluencePage
-from app.models.embedding_counts import EmbeddingCounts
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.confluence.chunk import ConfluenceChunk
+from app.models.confluence.page import ConfluencePage
 
 # How much of the internal result is exposed. Raise these while debugging.
 SAMPLE_PAGES_LIMIT = 10

@@ -1,8 +1,8 @@
 from pydantic import BaseModel
 
-from app.models.code_chunk import CodeChunk
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.repository_file import RepositoryFile
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
 
 SAMPLE_FILES_LIMIT = 10
 SAMPLE_CHUNKS_LIMIT = 20

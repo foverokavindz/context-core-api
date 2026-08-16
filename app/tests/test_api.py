@@ -21,9 +21,9 @@ from app.core.exceptions import (
 )
 from app.ingestion.ingestion_service import IngestionResult
 from app.main import app
-from app.models.code_chunk import CodeChunk
-from app.models.ingest_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_FILES_LIMIT
-from app.models.repository_file import RepositoryFile
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
+from app.models.github.response import SAMPLE_CHUNKS_LIMIT, SAMPLE_FILES_LIMIT
 
 TOKEN = "ghp_secret_value_that_must_never_be_echoed"
 

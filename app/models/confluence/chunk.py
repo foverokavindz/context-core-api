@@ -1,4 +1,4 @@
-from app.models.permission_scope import PermissionScope
+from app.models.common.permission_scope import PermissionScope
 
 class ConfluenceChunk(PermissionScope):
     page_id: str

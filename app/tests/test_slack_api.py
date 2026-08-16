@@ -32,10 +32,10 @@ from app.core.exceptions import (
 )
 from app.ingestion.slack_ingestion_service import SlackIngestionResult
 from app.main import app
-from app.models.slack_chunk import SlackChunk
-from app.models.slack_message import SlackMessage
-from app.models.slack_request import SlackIngestRequest
-from app.models.slack_response import SAMPLE_CHUNKS_LIMIT, SAMPLE_MESSAGES_LIMIT
+from app.models.slack.chunk import SlackChunk
+from app.models.slack.message import SlackMessage
+from app.models.slack.request import SlackIngestRequest
+from app.models.slack.response import SAMPLE_CHUNKS_LIMIT, SAMPLE_MESSAGES_LIMIT
 
 ENDPOINT = "/api/v1/slack/ingest"
 

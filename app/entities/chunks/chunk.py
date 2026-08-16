@@ -70,7 +70,7 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     chunk_metadata: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=True,
-    ) # chunk-specific context only - symbol_name and start_line for code, not a second copy of the resource's repository and branch
+    ) # what the chunk models carry beyond the columns above: symbol_name and start_line for code, and the item's own fields - repository and branch, space_key, project_key. A deliberate second copy of what the resource row already holds, so a retrieval hit is self-describing without a join back to resources. The resource stays the source of truth; nothing keeps this copy in step, see docs/todo.md
 
     access_scope: Mapped[ResourceAccessScope] = mapped_column(
         SAEnum(

@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends
 
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService, IngestionResult
-from app.models.embedding_counts import EmbeddingCounts
-from app.models.github_request import GitHubIngestRequest
-from app.models.ingest_response import (
+from app.models.common.embedding_counts import EmbeddingCounts
+from app.models.github.request import GitHubIngestRequest
+from app.models.github.response import (
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_FILES_LIMIT,
     FileError,

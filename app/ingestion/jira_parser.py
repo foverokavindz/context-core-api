@@ -18,7 +18,7 @@ and moves on.
 import logging
 
 from app.ingestion.jira_adf import adf_to_text
-from app.models.jira_issue import UNKNOWN_ISSUE_TYPE, JiraIssue
+from app.models.jira.issue import UNKNOWN_ISSUE_TYPE, JiraIssue
 
 logger = logging.getLogger(__name__)
 

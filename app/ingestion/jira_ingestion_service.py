@@ -23,9 +23,9 @@ from app.connectors.jira_connector import JiraConnector
 from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.ingestion.jira_chunker import JiraChunker
 from app.ingestion.jira_parser import JiraParser
-from app.models.jira_chunk import JiraChunk
-from app.models.jira_issue import JiraIssue
-from app.models.jira_response import MAX_ISSUES_PER_INGESTION
+from app.models.jira.chunk import JiraChunk
+from app.models.jira.issue import JiraIssue
+from app.models.jira.response import MAX_ISSUES_PER_INGESTION
 
 logger = logging.getLogger(__name__)
 

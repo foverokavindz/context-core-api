@@ -23,9 +23,9 @@ from app.ingestion.embedding_service import ChunkEmbedder, embed_into
 from app.ingestion.file_filter import FileFilter
 from app.ingestion.parser.base import ParserRegistry
 from app.ingestion.parser.typescript_parser import TypeScriptTreeSitterParser
-from app.models.code_chunk import CodeChunk
-from app.models.ingest_response import MAX_FILES_PER_INGESTION
-from app.models.repository_file import RepositoryFile
+from app.models.github.chunk import CodeChunk
+from app.models.github.file import RepositoryFile
+from app.models.github.response import MAX_FILES_PER_INGESTION
 
 logger = logging.getLogger(__name__)
 

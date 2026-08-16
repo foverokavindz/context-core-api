@@ -19,8 +19,8 @@ description into its Epic would duplicate the same prose across two embeddings.
 
 import logging
 
-from app.models.jira_chunk import JiraChunk
-from app.models.jira_issue import JiraIssue
+from app.models.jira.chunk import JiraChunk
+from app.models.jira.issue import JiraIssue
 
 logger = logging.getLogger(__name__)
 
