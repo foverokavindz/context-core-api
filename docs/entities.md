@@ -63,15 +63,21 @@ where it started. A chunk is the retrieval unit and the only table carrying a
 vector, and it is read by `chat` as often as it is written by ingestion — so it
 is a group of its own rather than a tail of the group that produces it.
 
-**There is no engine, no session factory, no `DATABASE_URL` and no Alembic.**
-That is not an omission. Entity definitions do not need a connection —
-`Base.metadata` is a *description* of a schema, and describing it is all this
-version does. Nothing in `app/main.py` imports this package, so the running API
-is unchanged. The engine arrives with the first code that actually reads or
-writes a row, and the driver (`psycopg` or `asyncpg`) arrives with it.
+**The engine, the session factory and the migrations now exist**, and they live
+outside this package: `app/core/database.py` holds the engine and the one reader
+of `DATABASE_URL`, and `alembic/versions/` holds the migrations that turn these
+descriptions into tables on a server. See [migrations.md](migrations.md).
 
-`sqlalchemy>=2.0` is a runtime dependency; no database driver is listed yet, for
-the same reason. `pgvector` is a runtime dependency too, and it is *not* a
+What has not changed is this package. `Base.metadata` is still a *description* of
+a schema, nothing in `app/main.py` imports it, and no endpoint reads or writes a
+row yet — so the running API is unchanged. Note in particular that nothing calls
+`Base.metadata.create_all()`: the tables on a server are the ones the migrations
+created, and [migrations.md](migrations.md#create_all-is-not-used) explains why
+having both would be worse than having either.
+
+`sqlalchemy>=2.0` and `psycopg[binary]` are runtime dependencies, the second
+being the driver — psycopg 3, which is why every URL is spelled
+`postgresql+psycopg`. `pgvector` is a runtime dependency too, and it is *not* a
 driver: it is a pure-python package that contributes a SQLAlchemy type, which
 `chunks.embedding` needs at import time even though nothing writes a vector yet.
 See [`chunks`](#chunks) below.
@@ -782,10 +788,12 @@ everything that implies, and SQLite gets a JSON array, so `create_all` in a test
 still builds a table this project can insert into.
 
 Two things that column does *not* do. It does not create the extension — a real
-server needs `CREATE EXTENSION vector`, and that belongs to the first migration.
-And it has no `ivfflat` or `hnsw` index; an approximate-nearest-neighbour index is
-tuned against a real corpus and a real dimension, and adding one against an empty
-table would be guesswork.
+server needs `CREATE EXTENSION vector`, and that is the first statement of the
+first migration rather than anything this column can express. And it has no
+`ivfflat` or `hnsw` index; an approximate-nearest-neighbour index is tuned
+against a real corpus and a real dimension, and adding one against an empty table
+would be guesswork, so it waits for a migration of its own. See
+[migrations.md](migrations.md).
 
 **1536 is pinned deliberately.** It is the width of `text-embedding-3-small` and
 `text-embedding-ada-002`. A different model means a different number, and a
@@ -1609,8 +1617,12 @@ answer cites the chunks it rested on. No further table is planned for V1.
 What is absent is every line of code that would write one. Authentication
 endpoints, JWT, password hashing, login; CRUD APIs; team services; source
 connection endpoints; the ingestion orchestrator; credential encryption;
-authorisation policies; repositories; and migrations. The service-layer work these
+authorisation policies; and repositories. The service-layer work these
 entities specifically wait on is in [todo.md](todo.md).
+
+Migrations are the one item that has since been struck off that list — the tables
+exist on a server now, and nothing writes to them. See
+[migrations.md](migrations.md).
 
 The knowledge and chunk groups in particular are columns and nothing else. There
 is no embedding generation and no client for any embedding API; no vector index

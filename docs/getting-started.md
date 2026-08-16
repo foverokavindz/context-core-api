@@ -16,6 +16,28 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
+## The database
+
+Optional for the ingestion endpoints — they do not read or write a row, so the
+API starts and answers without a database configured. It is required to run the
+migrations.
+
+Put the connection string in `.env` at the repository root, which is gitignored:
+
+```
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/contextcore
+```
+
+Then create the schema:
+
+```bash
+alembic upgrade head
+```
+
+That needs a PostgreSQL server with the `vector` extension available — the first
+migration creates it, which takes a superuser or `rds_superuser` on RDS. See
+[migrations.md](migrations.md).
+
 ## Running it
 
 ```bash

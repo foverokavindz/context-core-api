@@ -6,7 +6,8 @@ into these messages; it is logged server-side instead. That keeps two things out
 of responses: internal detail, and any chance of echoing back credentials.
 
 The GitHub errors come first, then the Jira ones, then the Confluence ones, then
-the Slack ones, and the embedding ones last. They are kept as separate classes
+the Slack ones, then the embedding ones, and the database one last. They are
+kept as separate classes
 rather than shared because the wording a client sees should name the system that
 actually failed, and because the vendors do not agree on what a given status
 means - GitHub's 403 is ambiguous, Jira's is not.
@@ -343,4 +344,19 @@ class EmbeddingError(IngestionError):
     default_message = (
         "The embedding service could not be reached or returned an "
         "unusable response."
+    )
+
+
+class DatabaseConfigurationError(IngestionError):
+    """`DATABASE_URL` is not set on this deployment.
+
+    A 500 for the same reason EmbeddingConfigurationError is one: the caller
+    asked for something reasonable and the server cannot honour it. The message
+    names the variable and never its value - a connection URL carries a
+    password, so it must not reach a response, a log line or a traceback.
+    """
+
+    status_code = 500
+    default_message = (
+        "The database is not configured on this server. Set DATABASE_URL."
     )

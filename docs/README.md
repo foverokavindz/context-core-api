@@ -41,4 +41,5 @@ ingests afterwards.
 | Page | What's in it |
 | --- | --- |
 | [entities.md](entities.md) | The database layer: departments, job titles, users, teams, connected data sources, uploaded documents, the resources and chunks both produce, and the chat sessions and citations built on top of them |
+| [migrations.md](migrations.md) | Alembic, `DATABASE_URL`, and how those entities become tables on a real server |
 | [todo.md](todo.md) | The rules those tables leave to a service layer that does not exist yet |
