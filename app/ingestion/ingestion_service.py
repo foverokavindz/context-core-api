@@ -173,10 +173,10 @@ class GitHubIngestionService:
         """Parse one file, recording rather than raising anything that goes wrong."""
         parser = self.registry.parser_for(file.extension)
         if parser is None:
-            errors.append((file.path, "No parser is registered for this file type."))
+            errors.append((file.file_path, "No parser is registered for this file type."))
             return []
 
-        logger.debug("Parsing %s", file.path)
+        logger.debug("Parsing %s", file.file_path)
 
         warnings: list[str] = []
         try:
@@ -184,12 +184,12 @@ class GitHubIngestionService:
         except Exception:
             # One malformed file must not cost the other several hundred. The
             # traceback goes to the log; the client sees only the short reason.
-            logger.exception("Parser failed on %s", file.path)
-            errors.append((file.path, "The file could not be parsed."))
+            logger.exception("Parser failed on %s", file.file_path)
+            errors.append((file.file_path, "The file could not be parsed."))
             return []
 
         for warning in warnings:
-            errors.append((file.path, warning))
+            errors.append((file.file_path, warning))
 
         return chunks
 
@@ -197,4 +197,4 @@ class GitHubIngestionService:
     def _count_parsed(files: list[RepositoryFile], result: IngestionResult) -> int:
         """How many files produced at least one chunk."""
         produced = {chunk.file_path for chunk in result.chunks}
-        return sum(1 for file in files if file.path in produced)
+        return sum(1 for file in files if file.file_path in produced)

@@ -298,11 +298,13 @@ def make_github_result() -> IngestionResult:
         repository=REPOSITORY,
         branch="main",
         commit_sha="a" * 40,
-        path="src/auth/auth.service.ts",
+        file_path="src/auth/auth.service.ts",
         file_name="auth.service.ts",
         extension=".ts",
         language="typescript",
         content="export class AuthService {}",
+        external_id="src/auth/auth.service.ts",
+        title="auth.service.ts",
     )
     chunk = CodeChunk(
         repository=REPOSITORY,

@@ -352,13 +352,16 @@ class GitHubConnector(BaseSourceConnector):
             repository=self.repository,
             branch=branch,
             commit_sha=commit_sha,
-            path=path,
+            file_path=path,
             file_name=pure.name,
             extension=extension,
             file_sha=blob_sha,
             size=size if size is not None else len(raw),
             language=language_for_extension(extension),
             content=content,
+            external_id=path,
+            title=pure.name,
+            version_key=blob_sha,
         )
 
     @staticmethod

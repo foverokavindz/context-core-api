@@ -33,13 +33,16 @@ def make_file(index: int) -> RepositoryFile:
         repository="my-org/backend",
         branch="main",
         commit_sha="abc123",
-        path=f"src/file{index}.ts",
+        file_path=f"src/file{index}.ts",
         file_name=f"file{index}.ts",
         extension=".ts",
         file_sha=f"sha{index}",
         size=100 + index,
         language="typescript",
         content="export const a = 1;\n",
+        external_id=f"src/file{index}.ts",
+        title=f"file{index}.ts",
+        version_key=f"sha{index}",
     )
 
 

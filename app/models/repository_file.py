@@ -1,3 +1,4 @@
+from app.entities.knowledge_sources.resource_type import ResourceType
 from app.models.permission_scope import PermissionScope
 
 LANGUAGE_BY_EXTENSION: dict[str, str] = {
@@ -19,8 +20,7 @@ class RepositoryFile(PermissionScope):
     branch: str
     commit_sha: str
 
-    # Which file it is.
-    path: str
+    file_path: str
     file_name: str
     extension: str | None
 
@@ -32,3 +32,8 @@ class RepositoryFile(PermissionScope):
     language: str | None = None
 
     content: str
+
+    external_id: str # = file_path. A path means something only inside its repository, which is why resources scopes uniqueness to (source, external_id)
+    title: str | None = None # = file_name. The path is what identifies the file; the bare name is what a person reads
+    version_key: str | None = None # = file_sha, the blob SHA GitHub changes whenever the file's bytes do
+    resource_type: ResourceType = ResourceType.GITHUB_FILE

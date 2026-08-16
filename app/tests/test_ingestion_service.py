@@ -42,13 +42,16 @@ def make_file(path: str, content: str) -> RepositoryFile:
         repository="my-org/backend",
         branch="main",
         commit_sha="abc123",
-        path=path,
+        file_path=path,
         file_name=path.rsplit("/", 1)[-1],
         extension=extension,
         file_sha=f"sha-{path}",
         size=len(content.encode("utf-8")),
         language="tsx" if extension == ".tsx" else "typescript",
         content=content,
+        external_id=path,
+        title=path.rsplit("/", 1)[-1],
+        version_key=f"sha-{path}",
     )
 
 
@@ -289,7 +292,7 @@ def test_a_parser_crash_is_contained(monkeypatch: pytest.MonkeyPatch) -> None:
     original = TypeScriptTreeSitterParser.parse
 
     def exploding(self, file, warnings=None):
-        if file.path == "src/bomb.ts":
+        if file.file_path == "src/bomb.ts":
             raise RuntimeError("unexpected parser failure")
         return original(self, file, warnings)
 

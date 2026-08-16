@@ -527,11 +527,11 @@ class TypeScriptTreeSitterParser(BaseParser):
             repository=file.repository,
             branch=file.branch,
             commit_sha=file.commit_sha,
-            file_path=file.path,
+            file_path=file.file_path,
             file_name=file.file_name,
             extension=file.extension,
             file_sha=file.file_sha,
-            external_id=file.path, # names the resource row this chunk belongs to; parse() fills chunk_index once it knows the order
+            external_id=file.file_path, # names the resource row this chunk belongs to; parse() fills chunk_index once it knows the order
             language=file.language or "unknown",
             symbol_type=symbol_type,
             symbol_name=symbol_name,

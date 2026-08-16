@@ -177,7 +177,7 @@ def test_returns_only_files_that_pass_the_filter() -> None:
 
     snapshot = connector.get_files(path_filter=FileFilter().should_include)
 
-    assert [file.path for file in snapshot.files] == [
+    assert [file.file_path for file in snapshot.files] == [
         "src/auth/AuthService.ts",
         "src/components/Login.tsx",
     ]
@@ -228,7 +228,7 @@ def test_repository_file_is_fully_populated() -> None:
     assert file.repository == "my-org/backend"
     assert file.branch == "main"
     assert file.commit_sha == "commit-sha-123"
-    assert file.path == "src/auth/AuthService.ts"
+    assert file.file_path == "src/auth/AuthService.ts"
     assert file.file_name == "AuthService.ts"
     assert file.extension == ".ts"
     assert file.file_sha == "sha-src/auth/AuthService.ts"
@@ -310,7 +310,7 @@ def test_binary_files_are_skipped_not_fatal() -> None:
 
     snapshot = connector.get_files(path_filter=FileFilter().should_include)
 
-    assert [f.path for f in snapshot.files] == ["src/good.ts"]
+    assert [f.file_path for f in snapshot.files] == ["src/good.ts"]
     assert ("src/binary.ts", "Skipped: file appears to be binary.") in snapshot.errors
 
 
@@ -325,7 +325,7 @@ def test_invalid_utf8_is_skipped_not_fatal() -> None:
 
     snapshot = connector.get_files(path_filter=FileFilter().should_include)
 
-    assert [f.path for f in snapshot.files] == ["src/good.ts"]
+    assert [f.file_path for f in snapshot.files] == ["src/good.ts"]
     assert any("UTF-8" in reason for _, reason in snapshot.errors)
 
 
@@ -338,7 +338,7 @@ def test_a_failing_download_does_not_stop_the_run() -> None:
 
     snapshot = connector.get_files(path_filter=FileFilter().should_include)
 
-    assert [f.path for f in snapshot.files] == ["src/b.ts"]
+    assert [f.file_path for f in snapshot.files] == ["src/b.ts"]
     assert snapshot.errors[0][0] == "src/a.ts"
 
 

@@ -100,7 +100,7 @@ def to_response(result: IngestionResult, *, full: bool = False) -> IngestRespons
                 repository=file.repository,
                 branch=file.branch,
                 commit_sha=file.commit_sha,
-                file_path=file.path,
+                file_path=file.file_path,
                 file_name=file.file_name,
                 extension=file.extension,
                 file_sha=file.file_sha,
@@ -111,9 +111,10 @@ def to_response(result: IngestionResult, *, full: bool = False) -> IngestRespons
                 access_scope=file.access_scope,
 
                 external_data_source_id=file.external_data_source_id,
-                external_id=file.path,
-                title=file.file_name,
-                version_key=file.file_sha,
+                external_id=file.external_id,
+                title=file.title,
+                version_key=file.version_key,
+                resource_type=file.resource_type,
             )
             for file in result.files[:file_limit]
         ],

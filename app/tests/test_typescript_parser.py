@@ -24,13 +24,16 @@ def make_file(content: str, path: str = "src/example.ts") -> RepositoryFile:
         repository="my-org/backend",
         branch="main",
         commit_sha="abc123",
-        path=path,
+        file_path=path,
         file_name=path.rsplit("/", 1)[-1],
         extension=extension,
         file_sha="xyz456",
         size=len(content.encode("utf-8")),
         language="tsx" if extension == ".tsx" else "typescript",
         content=content,
+        external_id=path,
+        title=path.rsplit("/", 1)[-1],
+        version_key="xyz456",
     )
 
 
