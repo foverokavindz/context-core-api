@@ -17,7 +17,6 @@ from app.models.ingest_response import (
     SAMPLE_CHUNKS_LIMIT,
     SAMPLE_FILES_LIMIT,
     FileError,
-    FileSummary,
     IngestResponse,
 )
 
@@ -95,29 +94,7 @@ def to_response(result: IngestionResult, *, full: bool = False) -> IngestRespons
             embedding_dimensions=result.embedding_dimensions,
             truncated_inputs=result.embedding_truncated_inputs,
         ),
-        resource_files=[
-            FileSummary(
-                repository=file.repository,
-                branch=file.branch,
-                commit_sha=file.commit_sha,
-                file_path=file.file_path,
-                file_name=file.file_name,
-                extension=file.extension,
-                file_sha=file.file_sha,
-                language=file.language,
-                size=file.size,
-                team_id=file.team_id,
-                department_id=file.department_id,
-                access_scope=file.access_scope,
-
-                external_data_source_id=file.external_data_source_id,
-                external_id=file.external_id,
-                title=file.title,
-                version_key=file.version_key,
-                resource_type=file.resource_type,
-            )
-            for file in result.files[:file_limit]
-        ],
+        resource_files=result.files[:file_limit],
         chunks=result.chunks[:chunk_limit],
         errors=[FileError(file=path, reason=reason) for path, reason in result.errors],
     )
