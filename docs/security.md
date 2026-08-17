@@ -24,24 +24,33 @@ which would make it useless for that purpose, and not encrypted, which is the
 thing that has not been built. Its proper home is a `SourceCredentials` row and
 `encrypted_secret`; both halves of that debt are in [todo.md](todo.md).
 
-Nothing else about the rule is relaxed, and three things hold it in place:
+**That row is now written.** `external_data_sources.token` used to hold a secret
+only for the lifetime of a process; since the persistence layer landed it holds
+one on disk, in a column, in plain text. A database dump contains usable tokens,
+and so does a replica, a backup and anything a `SELECT *` reaches. This is the
+single largest security debt in the project and it is in [todo.md](todo.md)
+under *Credentials*; nothing below reduces it.
 
-- **It is not written to disk.** Nothing persists the entity — there is no
-  engine — and the run file's `source` block is assembled field by field rather
-  than dumped, precisely so this attribute cannot ride along by accident. The
-  test suite asserts the token's literal value appears nowhere in a run file,
-  for a successful run and a failed one alike.
-- **It is not returned.** `IngestStartedResponse` carries an id, a source type, a
-  title and a status. The test suite asserts the token appears nowhere in the
+What is *not* relaxed, and the three things that hold it in place:
+
+- **It reaches the database and nowhere else on disk.** The run file's `source`
+  block is assembled field by field rather than dumped, precisely so this
+  attribute cannot ride along by accident. The test suite asserts the token's
+  literal value appears nowhere in a run file, for a successful run and a failed
+  one alike.
+- **It is not returned.** `IngestStartedResponse` carries two ids, a source type,
+  a title and a status. The test suite asserts the token appears nowhere in the
   response body.
-- **It is not logged.** The controller and the service log the source id, its
-  type and its display name, and no code path logs a request body.
+- **It is not logged.** The controller, the service and the pipeline log the
+  source id, the run id, the source type and the display name, and no code path
+  logs a request body. Database failures are the newest way this could break and
+  are handled explicitly: a `SQLAlchemyError` is logged in full server-side, but
+  what reaches `sync_runs.error_message` is a fixed string — never `str(exc)`,
+  which for a connection error carries the `DATABASE_URL` and its password.
 
-The one thing that *is* now true and was not before: a process holding an
-`ExternalDataSource` is holding a usable credential in plain text, so a memory
-dump or a future careless `model_dump` of that object would expose it. That is
-the cost of the shortcut, and it is why the shortcut has an entry in
-[todo.md](todo.md) rather than only a comment in the code.
+A process holding an `ExternalDataSource` is also holding a usable credential in
+plain text, so a memory dump or a careless `model_dump` of that object would
+expose it. That is the same cost in a different place.
 
 For Jira and Confluence specifically: the account email is treated as a
 credential too and is kept out of log lines, which name the site, the project or

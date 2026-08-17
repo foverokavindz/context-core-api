@@ -1,7 +1,9 @@
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+from app.core.db.dependencies import get_db
 from app.entities.data_sources.source_type import SourceType
 from app.models.ingestion.request import REQUIRED_CONFIG_KEYS, IngestDataRequest
 from app.models.ingestion.response import IngestStartedResponse
@@ -26,12 +28,13 @@ def ingest_data(
     external_source: str,
     request: IngestDataRequest,
     background: BackgroundTasks,
+    session: Session = Depends(get_db),
 ) -> IngestStartedResponse:
     """Accept an ingestion request and start its pipeline in the background."""
-    
+
     source_type = _resolve_source_type(external_source)
     _validate_config(source_type, request)
-    return start_ingestion(request, source_type, background)
+    return start_ingestion(request, source_type, background, session)
 
 
 def _resolve_source_type(external_source: str) -> SourceType:

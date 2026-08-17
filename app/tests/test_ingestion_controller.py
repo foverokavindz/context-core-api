@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from app.background.pipeline import ingestion_pipeline
 from app.background.pipeline.ingestion_pipeline import run_ingestion_pipeline
+from app.core.db.dependencies import get_db
 from app.core.exceptions import RepositoryNotFoundError
 from app.entities.data_sources.source_status import SourceStatus
 from app.entities.data_sources.source_type import SourceType
@@ -30,6 +31,7 @@ from app.main import app
 from app.models.github.chunk import CodeChunk
 from app.models.github.file import RepositoryFile
 from app.models.ingestion.request import IngestDataRequest
+from app.repository.external_data_source_repository import ExternalDataSourceRepository
 from app.services import ingestion_service
 
 ENDPOINT = "/api/v1/ingestData"
@@ -84,8 +86,50 @@ class SpyPipeline:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
-    def __call__(self, source, request) -> None:
-        self.calls.append((source, request))
+    def __call__(self, source, sync_run_id, request) -> None:
+        self.calls.append((source, sync_run_id, request))
+
+
+class FakeSession:
+    """A session that records rather than connects.
+
+    Enough for everything in this file: the repositories only add, flush,
+    commit and look a row up by primary key, and the ids are set in Python
+    rather than by the database, so nothing here needs a real one.
+    """
+
+    def __init__(self) -> None:
+        self.added: list = []
+        self.commits = 0
+        self.rollbacks = 0
+
+    def add(self, obj) -> None:
+        self.added.append(obj)
+
+    def add_all(self, objs) -> None:
+        self.added.extend(objs)
+
+    def flush(self) -> None:
+        pass
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+    def close(self) -> None:
+        pass
+
+    def get(self, entity, ident):
+        return next(
+            (
+                obj
+                for obj in self.added
+                if isinstance(obj, entity) and obj.id == ident
+            ),
+            None,
+        )
 
 
 @pytest.fixture
@@ -101,8 +145,18 @@ def spy(monkeypatch) -> SpyPipeline:
 
 
 @pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
+def session() -> FakeSession:
+    return FakeSession()
+
+
+@pytest.fixture
+def client(session) -> TestClient:
+    """A client whose requests get the fake session instead of a connection."""
+    app.dependency_overrides[get_db] = lambda: session
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 # ------------------------------------------------------- the accepted cases
@@ -117,8 +171,9 @@ def test_every_source_is_accepted(client, spy, source: str) -> None:
     assert body["source_type"] == source.upper()
     assert body["title"] == "TrackIt API"
     assert body["status"] == "PIPELINE_STARTED"
-    # A parseable id rather than a fixed one - it is generated per request.
+    # Parseable ids rather than fixed ones - both are generated per request.
     assert UUID(body["external_data_source_id"])
+    assert UUID(body["sync_run_id"])
 
 
 def test_the_path_segment_is_case_insensitive(client, spy) -> None:
@@ -140,7 +195,7 @@ def test_the_response_never_carries_the_token(client, spy) -> None:
 def test_the_external_data_source_is_built_from_the_request(client, spy) -> None:
     response = client.post(f"{ENDPOINT}/github", json=payload())
 
-    source, _ = spy.calls[0]
+    source, _, _ = spy.calls[0]
     assert str(source.id) == response.json()["external_data_source_id"]
     assert source.name == "TrackIt API"
     assert source.source_type is SourceType.GITHUB
@@ -154,7 +209,7 @@ def test_the_token_is_stored_on_the_source_unhashed(client, spy) -> None:
     """Deliberate for this phase - see docs/todo.md under Credentials."""
     client.post(f"{ENDPOINT}/github", json=payload())
 
-    source, _ = spy.calls[0]
+    source, _, _ = spy.calls[0]
     assert source.token == TOKEN
     # The credential row this really belongs in is not written yet, and the
     # column stays null rather than pointing at something invented.
@@ -166,7 +221,7 @@ def test_the_pipeline_is_scheduled_once_per_request(client, spy) -> None:
     client.post(f"{ENDPOINT}/slack", json=payload("slack"))
 
     assert len(spy.calls) == 2
-    assert [source.source_type for source, _ in spy.calls] == [
+    assert [source.source_type for source, _, _ in spy.calls] == [
         SourceType.GITHUB,
         SourceType.SLACK,
     ]
@@ -175,7 +230,7 @@ def test_the_pipeline_is_scheduled_once_per_request(client, spy) -> None:
 def test_the_permission_context_reaches_the_pipeline(client, spy) -> None:
     client.post(f"{ENDPOINT}/github", json=payload())
 
-    _, request = spy.calls[0]
+    _, _, request = spy.calls[0]
     assert str(request.team_id) == TEAM_ID
     assert str(request.department_id) == DEPARTMENT_ID
     assert request.access_scope is ResourceAccessScope.TEAM
@@ -289,8 +344,8 @@ def make_request(**overrides) -> IngestDataRequest:
 
 
 def make_source(request: IngestDataRequest):
-    """The ExternalDataSource the service would have built for this request."""
-    return ingestion_service._create_external_data_source(request, SourceType.GITHUB)
+    """The ExternalDataSource the service would have recorded for this request."""
+    return ExternalDataSourceRepository(FakeSession()).create(request, SourceType.GITHUB)
 
 
 def make_github_result() -> IngestionResult:
@@ -351,7 +406,12 @@ def runs_dir(tmp_path, monkeypatch):
 
 
 def run_and_read(runs_dir, monkeypatch, *, error: Exception | None = None) -> dict:
-    """Run one GitHub ingestion against a fake service and read its file."""
+    """Run one GitHub ingestion against a fake service and read its file.
+
+    The session is fake too, so the run's rows are built and discarded rather
+    than written - what these tests are about is the file and the permission
+    stamp, not the tables.
+    """
     monkeypatch.setattr(
         ingestion_pipeline,
         "GitHubIngestionService",
@@ -359,8 +419,11 @@ def run_and_read(runs_dir, monkeypatch, *, error: Exception | None = None) -> di
     )
     request = make_request()
     source = make_source(request)
+    sync_run_id = uuid4()
 
-    run_ingestion_pipeline(source, request)
+    run_ingestion_pipeline(
+        source, sync_run_id, request, session_factory=FakeSession
+    )
 
     written = list(runs_dir.iterdir())
     assert len(written) == 1

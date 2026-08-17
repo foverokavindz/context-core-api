@@ -4,11 +4,17 @@ from collections.abc import Callable, Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
+
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api import confluence_routes, github_routes, jira_routes, slack_routes
+from app.core.db.session import SessionLocal
 from app.core.exceptions import IngestionError
 from app.entities.data_sources.external_data_source import ExternalDataSource
 from app.entities.data_sources.source_type import SourceType
+from app.entities.data_sources.sync_run_status import SyncRunStatus
 from app.ingestion.confluence_ingestion_service import ConfluenceIngestionService
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService
@@ -16,55 +22,160 @@ from app.ingestion.jira_ingestion_service import JiraIngestionService
 from app.ingestion.slack_ingestion_service import SlackIngestionService
 from app.models.common.permission_scope import PermissionScope
 from app.models.ingestion.request import IngestDataRequest
+from app.repository.chunk_repository import ChunkRepository
+from app.repository.external_data_source_repository import ExternalDataSourceRepository
+from app.repository.resource_repository import ResourceRepository
+from app.repository.sync_run_repository import SyncRunRepository
 
 logger = logging.getLogger(__name__)
 
 RUNS_DIRECTORY = Path(__file__).resolve().parents[2] / "data" / "runs"
 RUN_FILE_FULL = True
 
+PERSISTENCE_FAILED_MESSAGE = "The ingestion result could not be saved."
 
-def run_ingestion_pipeline(source: ExternalDataSource, request: IngestDataRequest) -> None:
-    """Ingest from one connected source and write the run to a file."""
+UNEXPECTED_FAILURE_MESSAGE = "The ingestion failed unexpectedly."
+
+
+def run_ingestion_pipeline(
+    source: ExternalDataSource,
+    sync_run_id: UUID,
+    request: IngestDataRequest,
+    # this runs as a BackgroundTask, and it owns its
+    # session end to end rather than borrowing the request's. 
+    db_session: Callable[[], Session] = SessionLocal,
+) -> None:
+    """Ingest from one connected source, persist the result, and write the run file."""
 
     started_at = _now()
     logger.info(
-        "Ingestion run starting for %s source %s (%s)",
+        "Ingestion run %s starting for %s source %s (%s)",
+        sync_run_id,
         source.source_type.value,
         source.id,
         source.name,
     )
 
+    session = db_session()
+    sync_runs = SyncRunRepository(session)
+
     try:
+        
+        sync_runs.update_status(
+            sync_run_id, SyncRunStatus.RUNNING, started_at=_now_dt()
+        )
+        session.commit()
+
         result, items, to_response = _ingest(source, request)
+
+        _apply_source_context(items, source, request)
+        _apply_source_context(result.chunks, source, request)
+
+        completed_at = _now_dt()
+
+        # One transaction for all four writes. 
+        ResourceRepository(session).add_new_resources(items)
+        ChunkRepository(session).add_new_chunks(result.chunks)
+        sync_runs.update_status(
+            sync_run_id,
+            SyncRunStatus.COMPLETED,
+            completed_at=completed_at,
+            resources_processed=len(items),
+            chunks_created=len(result.chunks),
+        )
+
+        ExternalDataSourceRepository(session).mark_synced(source.id, completed_at)
+        session.commit()
 
     except IngestionError as exc:
         logger.error(
-            "Ingestion run failed for %s source %s: %s",
+            "Ingestion run %s failed for %s source %s: %s",
+            sync_run_id,
             source.source_type.value,
             source.id,
             type(exc).__name__,
         )
-        _write_run(source, _failed(source, request, started_at, exc))
+        _record_failure(session, sync_runs, sync_run_id, exc.message)
+        _write_run(
+            source,
+            _failed(
+                source,
+                request,
+                sync_run_id,
+                started_at,
+                type(exc).__name__,
+                exc.message,
+            ),
+        )
         return
 
-    _apply_source_context(items, source, request)
-    _apply_source_context(result.chunks, source, request)
+    except SQLAlchemyError:
+        # Nothing reached the database, and there is no client left to answer -
+        # a failure that vanished here would be invisible, so it is logged in
+        # full and recorded on the run row in the safe form.
+        logger.exception(
+            "Ingestion run %s could not be persisted for source %s",
+            sync_run_id,
+            source.id,
+        )
+        _record_failure(session, sync_runs, sync_run_id, PERSISTENCE_FAILED_MESSAGE)
+        _write_run(
+            source,
+            _failed(
+                source,
+                request,
+                sync_run_id,
+                started_at,
+                "PersistenceError",
+                PERSISTENCE_FAILED_MESSAGE,
+            ),
+        )
+        return
+
+    except Exception:
+        # The catch-all exists for one reason: the run row is already RUNNING,
+        # and an exception past this point would leave it that way for ever.
+        # A run that ended has to say so, whatever ended it.
+        logger.exception(
+            "Ingestion run %s failed unexpectedly for source %s",
+            sync_run_id,
+            source.id,
+        )
+        _record_failure(session, sync_runs, sync_run_id, UNEXPECTED_FAILURE_MESSAGE)
+        _write_run(
+            source,
+            _failed(
+                source,
+                request,
+                sync_run_id,
+                started_at,
+                "UnexpectedError",
+                UNEXPECTED_FAILURE_MESSAGE,
+            ),
+        )
+        return
+
+    finally:
+        session.close()
 
     response = to_response(result, full=RUN_FILE_FULL)
 
     logger.info(
-        "Ingestion run finished for %s source %s: %d resource files, %d chunks",
+        "Ingestion run %s finished for %s source %s: %d resource files, %d chunks",
+        sync_run_id,
         source.source_type.value,
         source.id,
         len(items),
         len(result.chunks),
     )
 
-    #TODO: run persistence service to persist the result and chunks to the database
+
+    #TODO: remove this later, this is just for debugging and testing the run file
     _write_run(
         source,
         {
             "source": _source_record(source, request),
+            "sync_run_id": str(sync_run_id),
             "status": "COMPLETED",
             "started_at": started_at,
             "completed_at": _now(),
@@ -86,7 +197,7 @@ def _ingest( source: ExternalDataSource, request: IngestDataRequest) -> tuple[An
             branch=config.get("branch"),
         )
         return result, result.files, github_routes.to_response #TODO : refactor to return the response model
- 
+
     if source.source_type is SourceType.JIRA:
         result = JiraIngestionService(embedder=ChunkEmbedder()).ingest(
             site_url=config["site_url"],
@@ -128,6 +239,31 @@ def _apply_source_context(
         obj.external_data_source_id = source.id
 
 
+def _record_failure(
+    session: Session,
+    sync_runs: SyncRunRepository,
+    sync_run_id: UUID,
+    message: str,
+) -> None:
+    """Mark the run FAILED on a session that may be holding a half-written run.
+
+    The rollback comes first: resources may already have been flushed when the
+    chunk insert failed, and none of them should survive a failed run.
+    """
+    try:
+        session.rollback()
+        sync_runs.update_status(
+            sync_run_id,
+            SyncRunStatus.FAILED,
+            completed_at=_now_dt(),
+            error_message=message,
+        )
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        logger.exception("Could not record the failure on sync run %s", sync_run_id)
+
+
 def _source_record(
     source: ExternalDataSource, request: IngestDataRequest
 ) -> dict[str, Any]:
@@ -153,18 +289,21 @@ def _source_record(
 def _failed(
     source: ExternalDataSource,
     request: IngestDataRequest,
+    sync_run_id: UUID,
     started_at: str,
-    exc: IngestionError,
+    error_type: str,
+    message: str,
 ) -> dict[str, Any]:
     """The run file for an ingestion that did not finish."""
     return {
         "source": _source_record(source, request),
+        "sync_run_id": str(sync_run_id),
         "status": "FAILED",
         "started_at": started_at,
         "completed_at": _now(),
         # The client-safe message, the same text the synchronous endpoints
         # return. The upstream API's own error body stays in the server log.
-        "error": {"type": type(exc).__name__, "message": exc.message},
+        "error": {"type": error_type, "message": message},
         "result": None,
     }
 
@@ -179,3 +318,8 @@ def _write_run(source: ExternalDataSource, payload: dict[str, Any]) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _now_dt() -> datetime:
+    """The same instant as _now(), for the TIMESTAMPTZ columns."""
+    return datetime.now(timezone.utc)

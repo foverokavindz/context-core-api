@@ -18,11 +18,11 @@ pip install -e ".[dev]"
 
 ## The database
 
-Optional for the ingestion endpoints — they do not read or write a row, so the
-API starts and answers without a database configured. It is required to run the
-migrations.
+**Required.** `POST /api/v1/ingestData/{external_source}` writes rows now, and
+the app refuses to start without a connection string rather than failing at the
+first request.
 
-Put the connection string in `.env` at the repository root, which is gitignored:
+Put it in `.env` at the repository root, which is gitignored:
 
 ```
 DATABASE_URL=postgresql+psycopg://user:password@host:5432/contextcore
@@ -37,6 +37,22 @@ alembic upgrade head
 That needs a PostgreSQL server with the `vector` extension available — the first
 migration creates it, which takes a superuser or `rds_superuser` on RDS. See
 [migrations.md](migrations.md).
+
+### Seeding
+
+`external_data_sources`, `resources` and `chunks` all carry foreign keys onto
+`teams`, `departments` and `users`, and the ingestion endpoint takes those ids
+from the request body — there is no authentication yet to supply them. So a
+fresh database needs one of each before it will accept an ingestion:
+
+```bash
+python scripts/seed_dev.py
+```
+
+It creates one department, one user and one team under fixed ids, prints them
+ready to paste into a request body, and is safe to run twice. Development only —
+the password hash it writes is not a hash of anything, because there is no login
+path to use it.
 
 ## Running it
 

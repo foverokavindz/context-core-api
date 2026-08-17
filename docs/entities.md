@@ -1597,22 +1597,29 @@ groups are the whole V1 data model — an uploaded file or a connected system
 becomes a resource, a resource becomes chunks, a chunk gets a vector, and a chat
 answer cites the chunks it rested on. No further table is planned for V1.
 
-What is absent is every line of code that would write one. Authentication
-endpoints, JWT, password hashing, login; CRUD APIs; team services; source
-connection endpoints; the ingestion orchestrator; credential encryption;
-authorisation policies; and repositories. The service-layer work these
-entities specifically wait on is in [todo.md](todo.md).
+Four of them are written now. `POST /api/v1/ingestData/{external_source}` fills
+`external_data_sources`, `sync_runs`, `resources` and `chunks` through
+`app/repository/`, which is one class per table — see
+[ingestion-endpoint.md](ingestion-endpoint.md) for the order and the transaction
+boundaries. Migrations came off this list before them: the tables exist on a
+server. See [migrations.md](migrations.md).
 
-Migrations are the one item that has since been struck off that list — the tables
-exist on a server now, and nothing writes to them. See
-[migrations.md](migrations.md).
+What is still absent is every line of code that would write the rest.
+Authentication endpoints, JWT, password hashing, login; CRUD APIs; team
+services; document upload; credential encryption; and authorisation policies.
+`source_credentials`, `documents`, `chat_sessions`, `chat_session_messages` and
+`citations` have no writer at all, and `departments`, `job_titles`, `users`,
+`teams` and `team_members` are filled by `scripts/seed_dev.py` and nothing else.
+The service-layer work these entities specifically wait on is in
+[todo.md](todo.md).
 
-The knowledge and chunk groups in particular are columns and nothing else. There
-is no embedding generation and no client for any embedding API; no vector index
-and no similarity search; no authorisation function that reads `access_scope`; no
-row-level security; no resource or chunk CRUD; and nothing that turns a
-`CodeChunk` or a `JiraChunk` into a `Chunk` row. `resources` and `chunks` are the
-shape those things will need, written down before they are built.
+The knowledge and chunk groups have their writer and nothing more. A `CodeChunk`
+or a `JiraChunk` becomes a `Chunk` row in `app/repository/chunk_repository.py`,
+and the vector is real — `app/ingestion/embedding_service.py` produces it and
+`embedding_model` is written in the same statement. What is still missing is
+everything that *reads* them: no vector index and no similarity search, no
+authorisation function that reads `access_scope`, no row-level security, and no
+resource or chunk CRUD. Writing is one direction of two.
 
 The document and chat groups are newer and emptier still. Nothing uploads a file,
 stores its bytes, or moves a `DocumentStatus` past `UPLOADED`; there is no PDF or
@@ -1620,12 +1627,11 @@ DOCX parser and no document chunker. Nothing opens a chat session, calls a model
 retrieves a chunk, or writes a citation — retrieval, the RAG agent and the chat
 API are all absent, and `citations` is the table the last of those will fill.
 
-The ingestion pipelines do not use any of this. `CodeChunk`, `JiraChunk`,
-`ConfluenceChunk` and `SlackChunk` remain pydantic models that no table stores —
-see [architecture.md](architecture.md). `chunks` is the table they are eventually
-headed for, and the two are not yet connected by a single line of code: a DTO
-crosses a request boundary and is discarded, a `Chunk` is a row. Mapping one to
-the other is the ingestion orchestrator's job, and it does not exist.
+The four ingestion pipelines themselves still do not import any of this.
+`CodeChunk`, `JiraChunk`, `ConfluenceChunk` and `SlackChunk` are pydantic models
+that no connector, parser or chunker knows a table for — `app/repository/` is
+where a DTO becomes a row, at the end of the pipeline and nowhere inside it. See
+[architecture.md](architecture.md).
 
 ## Checking the schema
 

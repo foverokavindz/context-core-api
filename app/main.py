@@ -35,8 +35,8 @@ app = FastAPI(
         "descriptions and links them, one chunk per issue. Confluence: pulls one "
         "space's pages, flattens their storage markup into readable text, one "
         "chunk per page. Slack: pulls one channel's message history, drops "
-        "thread replies and channel events, one chunk per message. No "
-        "embeddings, no database, no retrieval - yet."
+        "thread replies and channel events, one chunk per message. Every run is "
+        "embedded and persisted as resources and chunks. No retrieval - yet."
     ),
 )
 

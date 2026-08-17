@@ -38,14 +38,17 @@ is created or its credential is changed.
 
 ## Sync runs
 
-**`last_synced_at` propagation.** When a `SyncRun` reaches `COMPLETED`, set
-`ExternalDataSource.last_synced_at = completed_at` in the same transaction. The
-entity deliberately has no `onupdate` and no event listener for this — see
+~~**`last_synced_at` propagation.**~~ Done. `run_ingestion_pipeline` writes
+`ExternalDataSource.last_synced_at` in the same transaction that moves the run to
+`COMPLETED`, through `ExternalDataSourceRepository.mark_synced`. The entity still
+has no `onupdate` and no event listener, which is the point — see
 [entities.md](entities.md#external_data_sources).
 
 **Status transitions.** `PENDING → RUNNING → COMPLETED | FAILED` is the intended
 path, and the schema enforces none of it. Nothing stops a run going straight from
-`PENDING` to `COMPLETED`, or a `COMPLETED` run being reopened.
+`PENDING` to `COMPLETED`, or a `COMPLETED` run being reopened. The ingestion path
+walks it correctly — the service writes `PENDING`, the pipeline writes the rest —
+but `SyncRunRepository.update_status` will write whatever it is asked to.
 
 **Nothing enforces one run at a time per source.** Two concurrent `RUNNING` rows
 against the same source are accepted by the database. Whether that is prevented
@@ -134,10 +137,10 @@ context, in one place; a resource whose scope is later *changed* also has to
 rewrite its chunks, and that is the case most likely to be forgotten. See
 [entities.md](entities.md#why-the-permission-columns-are-here-twice).
 
-**`embedding` is written by nobody.** The entity calls no embedding API — the
-ingestion service does, and the column holds what it wrote. `embedding_model` has
-to be written in the same statement as `embedding`, or the record of which model
-produced a vector is lost.
+~~**`embedding` is written by nobody.**~~ Done. `ChunkRepository.add_new_chunks`
+writes `embedding` and `embedding_model` off the same chunk object, so the two
+cannot come apart. The entity still calls no embedding API — the ingestion
+service does, and the column holds what it wrote.
 
 **Re-ingestion re-embeds everything.** `chunks.content_hash` was reserved for the
 obvious fix — hash `content`, compare against what is stored, and only spend an
@@ -160,7 +163,17 @@ it, and a second run that writes chunk 3 collides with the old chunk 3 rather th
 recognising it. What an index *means* across runs is answered with the
 re-ingestion strategy below, not before it.
 
-**Re-ingestion strategy is undecided.** `version_key` and `external_id` exist so a
+**Re-ingestion strategy is undecided, and a second run now fails.** Until the
+first run wrote rows this was theoretical; it is not any more. `resources` is
+unique on `(external_data_source_id, external_id)`, so running
+`POST /api/v1/ingestData/{external_source}` twice against the same source
+collides on the second run's first insert, and the pipeline records it as a
+`FAILED` run. That is the honest behaviour for an undecided question — it is
+loud, it writes nothing, and it will not quietly duplicate a corpus — but it is
+the reason connecting the *same* repository twice means creating a second source
+today. This is now the most immediate item on this page.
+
+`version_key` and `external_id` exist so a
 second run can recognise an item it already stored, and nothing yet decides
 whether an unchanged `version_key` skips the resource entirely, or whether a
 changed one replaces its chunks, renumbers them, or writes a new resource

@@ -40,6 +40,7 @@ packages = [
     "app.connectors",
     "app.controllers",
     "app.core",
+    "app.core.db",
     "app.entities",
     "app.entities.chat",
     "app.entities.chunks",
@@ -57,6 +58,7 @@ packages = [
     "app.models.ingestion",
     "app.models.jira",
     "app.models.slack",
+    "app.repository",
     "app.services",
 ]
 

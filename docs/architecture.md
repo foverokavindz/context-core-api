@@ -82,22 +82,39 @@ app/
 ├── entities/                     the database layer — see entities.md
 │   ├── base.py                   Base, UUIDMixin, TimestampMixin
 │   └── organization/             departments, job titles, users
-├── core/exceptions.py            error types and their HTTP statuses
+├── repository/                   the only modules that write a table
+│   ├── external_data_source_repository.py
+│   ├── sync_run_repository.py
+│   ├── resource_repository.py
+│   └── chunk_repository.py
+├── core/
+│   ├── exceptions.py             error types and their HTTP statuses
+│   └── db/                       engine, SessionLocal, the get_db dependency
 └── tests/
 ```
 
 `models/` and `entities/` are not two names for the same thing. Everything in
 `models/` is a pydantic DTO that lives for the length of one request; everything
-in `entities/` is a table. No pipeline imports `entities/` for a *table*, and
-nothing in it is wired into a connector — it is the first stone of the
-application that will be built on top of ingestion, not part of ingestion
-itself.
+in `entities/` is a table. No connector, parser or chunker imports `entities/`
+for a *table* — the four pipelines still end at a DTO, exactly as they did.
 
-Two of its *enums* are now imported by `models/` and by the common ingestion
+`repository/` is where the two meet, and it is the only place they do. One class
+per table, each taking a `Session`, and each turning DTOs into rows: a
+`RepositoryFile` becomes a `resources` row, a `CodeChunk` becomes a `chunks`
+row. That mapping is written once rather than four times, because by the time
+all four sources existed it was clear they agreed on the fields a row needs —
+`external_id`, `title`, `version_key`, `resource_type`, and the permission trio
+— and disagreed only on the remainder, which is what `resource_metadata` and
+`chunk_metadata` are for. The remainder is derived from `model_dump()`, so a
+connector that grows a field gets it stored without a change in `repository/`.
+
+**No repository commits.** The caller owns the transaction, which is what lets a
+whole run's resources, chunks, run status and `last_synced_at` land in one.
+
+Two of `entities/`' *enums* are imported by `models/` and by the common ingestion
 path: `SourceType` and `ResourceAccessScope`. An enum is not a table, and
 copying either into `models/` would create a second list of the same values to
-keep in step. `ExternalDataSource` is imported too, by the service and the
-pipeline — and constructed, not persisted, because there is still no engine.
+keep in step.
 
 ## The common ingestion path
 
@@ -112,22 +129,34 @@ at two different times:
 
 ```
 controller  ->  service  ->  202 Accepted
-   resolve      record the       (the caller is done here)
-   the path     connection
-   validate     schedule
-   config       the run
+   resolve      write the        (the caller is done here)
+   the path     source row
+   validate     queue a PENDING
+   config       sync run
+                commit
                      |
                      `-> background pipeline
+                            sync run -> RUNNING
                             the source's own ingestion service, unchanged
                             connector -> parser -> chunker -> embedder
                             permission fields onto every item and chunk
+                            -> resources + chunks + COMPLETED, in one transaction
                             -> app/data/runs/<source>_<id>.json
 ```
 
 The split is the point. The controller knows which sources exist and what each
 one's config must contain; the service knows what a connection *is*; the
-pipeline knows which of the four services to run. None of them knows what a
-chunk is, and none of the four pipelines learned anything about the other three.
+pipeline knows which of the four services to run, and the repositories know what
+a row looks like. None of the first three knows what a chunk is, and none of the
+four pipelines learned anything about the other three.
+
+**The pipeline opens its own session.** It takes a session factory rather than a
+`Session`, so it owns one end to end: it opens it, commits it, closes it, and
+releases its connection back to the pool across the minutes of network work.
+Handing over the request's session would work on the current FastAPI and would
+stop working silently on a version that tears dependencies down earlier — see
+[ingestion-endpoint.md](ingestion-endpoint.md) for the measurement. The factory
+is also the seam the tests substitute a fake at.
 
 `ingestion_pipeline.py` is the only module that imports all four ingestion
 services, and it does so in one `if`/`elif` rather than a registry — with four
@@ -136,11 +165,13 @@ each branch makes the same call the source's own endpoint already makes.
 
 Two things this path adds that the four endpoints do not have:
 
-**A record of the run.** An `ExternalDataSource` is built from the request, with
-the token on it. Nothing persists it — there is no session — so it is carried
-into the pipeline and written into the run file. The `TODO` marking where
-`session.add()` goes is in `services/ingestion_service.py`, and the reasons the
-credential row is skipped for now are in [todo.md](todo.md).
+**A record of the run.** An `ExternalDataSource` is written from the request,
+with the token on it, and a `SyncRun` is queued against it — both committed
+before the `202`, so the two ids the caller gets back name rows that exist. The
+pipeline then walks that run through `RUNNING` to `COMPLETED` or `FAILED` and
+writes what it produced into `resources` and `chunks`. The reasons the credential
+row is still skipped, and the token still in plain text, are in
+[todo.md](todo.md).
 
 **Permissions.** `PermissionScope` is the second thing after `embed_into` to
 earn a place shared across all four sources, and it earned it the same way:
@@ -150,10 +181,11 @@ three fields, and there was nothing to learn from seeing them written eight
 times. The pipeline stamps them in one place after the chunker, which is also
 the only way a chunk's copy cannot drift from its resource's.
 
-The run file is scaffolding, not a feature. It exists so a run can be inspected
-before there is a database to inspect instead, which is why the response does
-not name it — a caller gets the `external_data_source_id` and nothing about
-where the server put anything.
+The run file is scaffolding, not a feature. The rows are the record now; the
+file is written beside them because it is still the quickest way to read a whole
+run without a query, and the response has never named it — a caller gets the
+`external_data_source_id` and the `sync_run_id`, and nothing about where the
+server put anything.
 
 ## The boundaries that matter
 
