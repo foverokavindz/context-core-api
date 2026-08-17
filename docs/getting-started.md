@@ -49,8 +49,9 @@ fresh database needs one of each before it will accept an ingestion:
 python scripts/seed_dev.py
 ```
 
-It creates one department, one user and one team under fixed ids, prints them
-ready to paste into a request body, and is safe to run twice. Development only —
+It creates one department, one user and one team under fixed ids, makes that
+user the team's `TEAM_LEAD` member, prints the ids ready to paste into a request
+body, and is safe to run twice. Development only —
 the password hash it writes is not a hash of anything, because there is no login
 path to use it.
 
