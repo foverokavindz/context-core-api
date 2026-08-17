@@ -197,6 +197,7 @@ def test_chunks_carry_the_symbol_detail() -> None:
     chunk = body["chunks"][0]
     assert chunk["file_path"] == "src/file0.ts"
     assert chunk["symbol_type"] == "method"
+    assert chunk["chunk_type"] == "METHOD" # derived, but it has to reach the wire
     assert chunk["symbol_name"] == "login"
     assert chunk["parent_symbol"] == "AuthService"
     assert chunk["start_line"] == 25

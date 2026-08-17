@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.models.common.permission_scope import PermissionScope
 
@@ -24,3 +24,15 @@ class JiraChunk(PermissionScope):
 
     embedding: list[float] | None = None
     embedding_model: str | None = None
+
+    @computed_field # type: ignore[prop-decorator]
+    @property
+    def chunk_type(self) -> str:
+        """What `chunks.chunk_type` gets: this issue's issue_type, upper-cased.
+
+        A Jira project defines its own issue types, so this is STORY and EPIC on
+        most boards and BUG, SUB-TASK or anything else on others - which is the
+        reason the column is a string. UNKNOWN when the issue arrived without one;
+        see UNKNOWN_ISSUE_TYPE in jira_parser.
+        """
+        return self.issue_type.upper()

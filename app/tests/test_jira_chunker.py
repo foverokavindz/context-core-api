@@ -260,6 +260,14 @@ def test_the_chunk_carries_the_issue_fields_verbatim(chunker: JiraChunker) -> No
     assert chunk.child_issues == issue.child_issues
 
 
+def test_chunk_type_is_the_issue_type_upper_cased(chunker: JiraChunker) -> None:
+    """What chunks.chunk_type stores. A board defines its own issue types, so
+    this follows whatever came back rather than a fixed set."""
+    assert chunker.chunk(make_issue("TRACK-10", issue_type="Epic")).chunk_type == "EPIC"
+    assert chunker.chunk(make_issue("TRACK-25", issue_type="Story")).chunk_type == "STORY"
+    assert chunker.chunk(make_issue("TRACK-26", issue_type="Sub-task")).chunk_type == "SUB-TASK"
+
+
 def test_the_chunk_does_not_share_the_issues_child_list(
     chunker: JiraChunker,
 ) -> None:

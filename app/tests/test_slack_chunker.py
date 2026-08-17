@@ -85,6 +85,11 @@ def test_the_author_id_is_carried_as_a_field(chunker: SlackChunker) -> None:
     assert chunker.chunk(make_message()).author_id == USER
 
 
+def test_chunk_type_is_message(chunker: SlackChunker) -> None:
+    """What chunks.chunk_type stores. One message is one chunk, always."""
+    assert chunker.chunk(make_message()).chunk_type == "MESSAGE"
+
+
 def test_a_message_with_no_author_chunks_fine(chunker: SlackChunker) -> None:
     chunk = chunker.chunk(make_message(author_id=None))
 
@@ -152,6 +157,9 @@ def test_the_chunk_carries_no_thread_reaction_or_file_field(
         # the message; chunk_index takes its default, one chunk per message.
         "external_id",
         "chunk_index",
+        # Derived rather than set - a computed field, so it serialises like the
+        # rest but the chunker has nothing to do with it.
+        "chunk_type",
     }
     assert chunk.embedding is None
     assert chunk.embedding_model is None

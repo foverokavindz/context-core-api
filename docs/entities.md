@@ -49,7 +49,6 @@ app/entities/
 │   ├── resource_access_scope.py  ResourceAccessScope (an enum, not a table)
 │   └── resource.py               resources
 ├── chunks/
-│   ├── chunk_type.py             ChunkType (an enum, not a table)
 │   └── chunk.py                  chunks
 └── chat/
     ├── message_role.py           MessageRole (an enum, not a table)
@@ -640,8 +639,9 @@ folder should fail as the former.
 
 **`checksum` has room for a sha256 hex digest** and is indexed, so a re-upload of
 a file already held can be recognised rather than silently duplicated. Nothing
-here computes it — the upload path does, the same way the ingestion service owns
-`chunks.content_hash`. It is the same width for the same reason.
+here computes it — the upload path does, and the column holds what it wrote. It is
+the one deduplication key in the schema; `chunks` has no counterpart, and see
+[todo.md](todo.md) for what that costs re-ingestion.
 
 ## `resources`
 
@@ -755,11 +755,10 @@ exist. It is in [todo.md](todo.md) with the rest.
 | `external_data_source_id` | `UUID` | nullable, half of the key naming this chunk's resource |
 | `external_id` | `VARCHAR(512)` | nullable, the other half |
 | `chunk_index` | `INTEGER` | NOT NULL, unique *within* the resource |
-| `chunk_type` | `chunk_type` | nullable |
+| `chunk_type` | `VARCHAR(255)` | nullable |
 | `content` | `TEXT` | NOT NULL |
 | `embedding` | `VECTOR(1536)` | nullable |
 | `embedding_model` | `VARCHAR(255)` | nullable |
-| `content_hash` | `VARCHAR(64)` | nullable |
 | `chunk_metadata` | `JSONB` | nullable |
 | `access_scope` | `resource_access_scope` | NOT NULL, a **copy** of the resource's |
 | `team_id` | `UUID` | → `teams.id`, nullable, a **copy** |
@@ -801,21 +800,35 @@ different number means a migration whichever way the column had been declared, s
 there is nothing to be gained by leaving it open.
 
 `embedding_model` records which model produced the vector, so a model change can
-be found rather than inferred. `content_hash` has room for a sha256 hex digest and
-exists so re-ingestion can skip re-embedding text that did not change. **Neither
-is computed here** — no default, no event, no `hashlib` import. The ingestion
-service hashes and embeds, and the entity holds what it wrote.
+be found rather than inferred. **It is not computed here** — no default, no event.
+The ingestion service embeds, and the entity holds what it wrote; `embedding_model`
+has to be written in the same statement as `embedding`, or the record of which
+model produced a vector is lost.
 
-**`chunk_type` is nullable**, unlike `resource_type`. A chunker that only splits
-prose has nothing honest to put there, and a wrong value is worse than none:
+**`chunk_type` is a string, not an enum**, and it is the one column here that used
+to be one. An upper-cased name the ingestion layer writes:
 
-```
-GitHub      FILE / CLASS / METHOD / FUNCTION
-Jira        ISSUE
-Confluence  PAGE
-Slack       MESSAGE
-Document    DOCUMENT / DOCUMENT_SECTION
-```
+| Source | Taken from | Values |
+| --- | --- | --- |
+| GitHub | `CodeChunk.symbol_type`, upper-cased | `CLASS`, `METHOD`, `FUNCTION`, `INTERFACE`, `ENUM`, `TYPE_ALIAS`, `FILE` |
+| Jira | `JiraChunk.issue_type`, upper-cased | `STORY`, `EPIC`, `BUG`, `SUB-TASK`, `UNKNOWN`, … |
+| Confluence | constant | `PAGE` |
+| Slack | constant | `MESSAGE` |
+| Document | constant | `DOCUMENT`, `DOCUMENT_SECTION` |
+
+Both of the first two are *open sets*. A parser learns a new symbol kind — the
+TypeScript one already emits `interface`, `enum` and `type_alias` — and a Jira
+project defines whatever issue types its board was configured with. A native enum
+would make each of those an `ALTER TYPE ... ADD VALUE` in its own migration, which
+buys a validity guarantee the source systems were never going to honour anyway. The
+column is still indexed, and filtering on it costs the same either way.
+
+The four chunk models derive the value rather than storing it, as a
+`@computed_field` over the field it comes from, so `symbol_type` and `chunk_type`
+cannot drift apart.
+
+**It is nullable**, unlike `resource_type`. A chunker that only splits prose has
+nothing honest to put there, and a wrong value is worse than none.
 
 `chunk_metadata` holds what is true of *this piece* and not of the whole
 resource — `{"symbol_name": "login", "parent_symbol": "AuthService", "start_line":
@@ -1234,35 +1247,6 @@ The scope names an audience, and the audience it names is looked up elsewhere �
 `TEAM` means whatever `team_members` says, `DEPARTMENT` means whatever
 `users.department_id` says. The resource stores the rule, not the list of people.
 
-## `ChunkType`
-
-```python
-class ChunkType(str, Enum):
-    FILE = "FILE"
-    CLASS = "CLASS"
-    METHOD = "METHOD"
-    FUNCTION = "FUNCTION"
-
-    ISSUE = "ISSUE"
-    PAGE = "PAGE"
-    MESSAGE = "MESSAGE"
-
-    DOCUMENT = "DOCUMENT"
-    DOCUMENT_SECTION = "DOCUMENT_SECTION"
-```
-
-The semantic shape of one chunk, grouped by where it comes from: the first four
-from the TypeScript parser, then one each from Jira, Confluence and Slack, then
-the two an uploaded document will produce.
-
-Every member matches something a chunker in `app/ingestion/` produces today — that
-is the constraint on this enum, and it is why there is no `PARAGRAPH`, no
-`INTERFACE`, no `COMMENT`. Those are all plausible and none of them has code
-behind it, and a value nothing writes is a value every reader has to guess at.
-Adding one when its chunker exists is an `ALTER TYPE` in a migration.
-
-Unlike the other enums here it is stored **nullable** — see [`chunks`](#chunks).
-
 ## `DocumentStatus`
 
 ```python
@@ -1546,11 +1530,10 @@ external_data_source.py ->  base, source_type, source_status
 sync_run.py             ->  base, sync_run_status
 resource_type.py        ->  (nothing)
 resource_access_scope.py -> (nothing)
-chunk_type.py           ->  (nothing)
 document_status.py      ->  (nothing)
 message_role.py         ->  (nothing)
 resource.py             ->  base, resource_type, resource_access_scope
-chunk.py                ->  base, chunk_type, resource_access_scope, pgvector
+chunk.py                ->  base, resource_access_scope, pgvector
 document.py             ->  base, document_status
 chat_session.py         ->  base
 chat_session_message.py ->  base, message_role
@@ -1664,7 +1647,7 @@ engine = create_mock_engine("postgresql://", dump)
 Base.metadata.create_all(engine, checkfirst=False)
 ```
 
-That prints the eleven `CREATE TYPE`s, the fourteen `CREATE TABLE` statements and
+That prints the ten `CREATE TYPE`s, the fourteen `CREATE TABLE` statements and
 the thirty-one indexes, without connecting to anything. Note that
 `resource_access_scope` is emitted once even though two tables use it — one enum
 name is one PostgreSQL type. Swapping in `create_engine("sqlite://")` and a real

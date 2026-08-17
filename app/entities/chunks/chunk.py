@@ -17,7 +17,6 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.entities.base import Base, TimestampMixin, UUIDMixin
-from app.entities.chunks.chunk_type import ChunkType
 from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 
 if TYPE_CHECKING:
@@ -45,16 +44,11 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
 
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False) # the chunk's position within its resource, so a retrieved chunk can be put back in order
 
-    chunk_type: Mapped[ChunkType | None] = mapped_column(
-        SAEnum(
-            ChunkType,
-            name="chunk_type",
-            native_enum=True,
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
-        ),
+    chunk_type: Mapped[str | None] = mapped_column(
+        String(255),
         nullable=True,
         index=True,
-    ) # nullable, because a chunker that only splits text has nothing meaningful to put here and a wrong value would be worse than none
+    ) # an upper-cased string the ingestion layer writes, deliberately not an enum: it is symbol_type for GitHub, issue_type for Jira, PAGE for Confluence and MESSAGE for Slack, and both of the first two are open sets - a parser learns a new symbol kind and a Jira project defines whatever issue types it likes, neither of which should cost an ALTER TYPE. 255 to match embedding_model below; Jira caps an issue type's name well under that. Still nullable, because a chunker that only splits text has nothing meaningful to put here and a wrong value would be worse than none
 
     content: Mapped[str] = mapped_column(Text, nullable=False) # the text that gets embedded, kept beside its vector so retrieval reads one row
 
@@ -64,8 +58,6 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     ) # a real vector(1536) on PostgreSQL and JSON elsewhere, the same trade config and the metadata columns make. Nullable: a chunk exists from the moment it is written and is embedded after
   
     embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True) # which model produced the vector, so a model change can be found rather than guessed at
-
-    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True) # room for a sha256 hex digest. Nothing here hashes anything - the ingestion service does, to skip re-embedding content that did not change
 
     chunk_metadata: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),

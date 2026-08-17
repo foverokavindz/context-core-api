@@ -187,6 +187,7 @@ def test_chunks_carry_the_issue_detail() -> None:
     sample = body["chunks"][0]
     assert sample["key"] == "TRACK-0"
     assert sample["issue_type"] == "Story"
+    assert sample["chunk_type"] == "STORY" # derived, but it has to reach the wire
     assert sample["parent_key"] == "TRACK-10"
     assert sample["content"].startswith("Issue Key:")
 

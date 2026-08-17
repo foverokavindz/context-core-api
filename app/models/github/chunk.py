@@ -1,3 +1,5 @@
+from pydantic import computed_field
+
 from app.models.common.permission_scope import PermissionScope
 
 
@@ -38,3 +40,14 @@ class CodeChunk(PermissionScope):
 
     embedding: list[float] | None = None
     embedding_model: str | None = None
+
+    @computed_field # type: ignore[prop-decorator]
+    @property
+    def chunk_type(self) -> str:
+        """What `chunks.chunk_type` gets: this chunk's symbol_type, upper-cased.
+
+        Derived rather than stored so the two cannot disagree - the parser sets
+        symbol_type in one place and this follows it, including for the values
+        the old enum could not hold (INTERFACE, ENUM, TYPE_ALIAS).
+        """
+        return self.symbol_type.upper()

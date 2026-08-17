@@ -34,7 +34,7 @@ class Document(UUIDMixin, TimestampMixin, Base):
 
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False) # where the bytes are - a filesystem path or an object key. The bytes themselves are never in this table, and what does the storing is not decided yet
 
-    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True) # room for a sha256 hex digest, the same width chunks.content_hash uses. Indexed so a re-upload of a file already held can be recognised rather than duplicated
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True) # room for a sha256 hex digest. Indexed so a re-upload of a file already held can be recognised rather than duplicated
 
     status: Mapped[DocumentStatus] = mapped_column(
         SAEnum(

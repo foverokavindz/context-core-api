@@ -119,6 +119,7 @@ Note that this stage does **not** yet embed or persist Slack chunks.
 			"channel_id": "C0123456789",
 			"message_ts": "1754810101.100100",
 			"author_id": "U0000000001",
+			"chunk_type": "MESSAGE",
 			"content": "We should update the authentication flow."
 		}
 	],

@@ -203,6 +203,11 @@ def test_the_parent_id_survives_onto_the_chunk(chunker: ConfluenceChunker) -> No
     assert chunker.chunk(make_page(parent_id="101")).parent_id == "101"
 
 
+def test_chunk_type_is_page(chunker: ConfluenceChunker) -> None:
+    """What chunks.chunk_type stores. Constant while one page makes one chunk."""
+    assert chunker.chunk(make_page()).chunk_type == "PAGE"
+
+
 # ---------------------------------------------------- one page, one chunk
 
 

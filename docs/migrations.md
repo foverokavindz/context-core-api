@@ -84,10 +84,11 @@ things it cannot see are precisely the ones this schema depends on:
 - **`CREATE EXTENSION`.** Not part of any table's metadata. The `vector`
   extension is created by hand in the first migration, and any future extension
   is created by hand too.
-- **Enum value changes.** Adding a member to `ChunkType` produces nothing.
-  PostgreSQL needs `ALTER TYPE chunk_type ADD VALUE 'X'`, written out — and that
-  statement cannot run inside a transaction block on older servers, so it may
-  need its own migration.
+- **Enum value changes.** Adding a member to `ResourceType` produces nothing.
+  PostgreSQL needs `ALTER TYPE resource_type ADD VALUE 'X'`, written out — and
+  that statement cannot run inside a transaction block on older servers, so it may
+  need its own migration. This is the friction that made `chunks.chunk_type` a
+  plain string; see [entities.md](entities.md#chunks).
 - **Vector indexes.** An `ivfflat` or `hnsw` index on `chunks.embedding` is not
   in the entities, and deliberately so — see [todo.md](todo.md).
 - **Anything involving data.** A column that is being split, backfilled or
@@ -182,6 +183,30 @@ search against `chunks.embedding` is a sequential scan until an `ivfflat` or
 be done against a real corpus, which does not exist yet. The dimension is pinned;
 the index is not. It gets its own migration when there is data to tune it
 against.
+
+## `a1c4e7f92b60` — `chunk_type` as a string
+
+The second migration, and the first one that changes something the first one made.
+`chunks.chunk_type` stops being the native `chunk_type` enum and becomes
+`VARCHAR(255)`; the now-orphaned type is dropped; `chunks.content_hash` goes with
+it. The reasoning for both is in [entities.md](entities.md#chunks) — the short
+version is that the symbol kinds a parser finds and the issue types a Jira project
+defines are open sets, and `content_hash` was a column nothing ever wrote.
+
+That leaves the first migration creating a type the second one destroys, which is
+deliberate: `d0371f6b5f55` has been applied, and rewriting an applied migration is
+how two databases end up with schemas no revision describes.
+
+Written by hand, for the reason listed above — a type change with data behind it is
+one of the things autogenerate turns into a drop and an add. The conversion is
+`postgresql_using='chunk_type::text'`, which no existing row can fail, and
+`ix_chunks_chunk_type` survives untouched because PostgreSQL rebuilds an index
+across `ALTER COLUMN ... TYPE` on its own.
+
+**The `downgrade()` can fail, and should.** It casts back to the ten-member enum,
+so any row holding an `INTERFACE`, `TYPE_ALIAS` or `BUG` — exactly the values the
+upgrade makes possible — aborts it. Refusing is better than discarding, and
+whoever wants to go back has to decide what those rows become first.
 
 ## Not done yet
 

@@ -110,6 +110,7 @@ in the three fields, **Execute**.
 			"extension": ".ts",
 			"file_sha": "9f2c1ab",
 			"symbol_type": "method",
+			"chunk_type": "METHOD",
 			"symbol_name": "login",
 			"parent_symbol": "AuthService",
 			"start_line": 25,
@@ -260,6 +261,9 @@ Recognised symbols:
 | `enum`                                                       | `enum`        |
 | `type X = ...`                                               | `type_alias`  |
 
+- `chunk_type` is that same value upper-cased — `METHOD`, `TYPE_ALIAS` — and is
+  what `chunks.chunk_type` stores. It is derived, not set separately, so the two
+  cannot disagree.
 - `parent_symbol` holds the enclosing class, or the namespace for symbols
   declared inside one. It is `null` at the top level.
 - Chunk spans start at the `export` keyword (and any decorators), so modifiers
@@ -321,8 +325,8 @@ while a chunk reports the last line that actually holds text.
 ### Fallback and resilience
 
 - A file yielding no recognised symbol — a file of constants, a re-export barrel
-  — produces one whole-file chunk with `symbol_type: "file"` and
-  `symbol_name: null`, so nothing is silently dropped.
+  — produces one whole-file chunk with `symbol_type: "file"` (so `chunk_type:
+  "FILE"`) and `symbol_name: null`, so nothing is silently dropped.
 - Tree-sitter recovers from syntax errors. A partially broken file still yields
   the symbols that parsed, and the problem is reported in `errors[]`.
 

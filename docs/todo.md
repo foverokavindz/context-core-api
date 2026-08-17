@@ -134,12 +134,18 @@ context, in one place; a resource whose scope is later *changed* also has to
 rewrite its chunks, and that is the case most likely to be forgotten. See
 [entities.md](entities.md#why-the-permission-columns-are-here-twice).
 
-**`content_hash` and `embedding` are written by nobody.** The entity does no
-hashing and calls no embedding API. The ingestion service hashes `content`,
-compares against the stored `content_hash`, and only then spends an embedding
-call — the whole reason the column is there. `embedding_model` has to be written
-in the same statement as `embedding`, or the record of which model produced a
-vector is lost.
+**`embedding` is written by nobody.** The entity calls no embedding API — the
+ingestion service does, and the column holds what it wrote. `embedding_model` has
+to be written in the same statement as `embedding`, or the record of which model
+produced a vector is lost.
+
+**Re-ingestion re-embeds everything.** `chunks.content_hash` was reserved for the
+obvious fix — hash `content`, compare against what is stored, and only spend an
+embedding call when the two differ — and it was removed in `a1c4e7f92b60` because
+nothing ever wrote it. Whoever builds the skip adds the column back in the same
+migration as the code that fills it, so it never again sits there as a column every
+reader has to guess at. `documents.checksum` is the same idea already in place for
+uploads, and is worth reading first.
 
 **`chunk_index` is not checked for gaps, and does not mean the same thing twice.**
 The unique constraint stops a resource holding index 0 twice; nothing requires its

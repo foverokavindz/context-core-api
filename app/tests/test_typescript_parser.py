@@ -79,6 +79,10 @@ def test_class_and_methods_are_extracted(parser: TypeScriptTreeSitterParser) -> 
     assert by_name["login"].symbol_type == "method"
     assert by_name["logout"].symbol_type == "method"
 
+    # chunk_type is symbol_type upper-cased, and is what chunks.chunk_type stores.
+    assert by_name["AuthService"].chunk_type == "CLASS"
+    assert by_name["login"].chunk_type == "METHOD"
+
 
 def test_methods_record_their_parent_class(parser: TypeScriptTreeSitterParser) -> None:
     chunks = parser.parse(make_file(CLASS_SOURCE))
@@ -245,6 +249,7 @@ def test_interface(parser: TypeScriptTreeSitterParser) -> None:
 """
     chunk = chunk_named(parser.parse(make_file(source)), "User")
     assert chunk.symbol_type == "interface"
+    assert chunk.chunk_type == "INTERFACE" # one of the values the old chunk_type enum could not hold
     assert chunk.start_line == 1
     assert chunk.end_line == 4
     assert "email: string;" in chunk.content
@@ -260,6 +265,7 @@ def test_type_alias(parser: TypeScriptTreeSitterParser) -> None:
     source = "export type UserRole = 'admin' | 'user';\n"
     chunk = chunk_named(parser.parse(make_file(source)), "UserRole")
     assert chunk.symbol_type == "type_alias"
+    assert chunk.chunk_type == "TYPE_ALIAS" # likewise
 
 
 def test_namespace_members_are_qualified(
@@ -326,6 +332,7 @@ def test_file_without_symbols_falls_back_to_a_whole_file_chunk(
 
     assert len(chunks) == 1
     assert chunks[0].symbol_type == "file"
+    assert chunks[0].chunk_type == "FILE"
     assert chunks[0].symbol_name is None
     assert chunks[0].parent_symbol is None
     assert chunks[0].content == source

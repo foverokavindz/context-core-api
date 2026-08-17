@@ -20,19 +20,6 @@ CREATE TYPE application_role AS ENUM (
     'EMPLOYEE'
 );
 
-CREATE TYPE chunk_type AS ENUM (
-    'FILE',
-    'CLASS',
-    'METHOD',
-    'FUNCTION',
-    'ISSUE',
-    'PAGE',
-    'MESSAGE',
-    'EPIC',
-    'DOCUMENT',
-    'DOCUMENT_SECTION'
-);
-
 CREATE TYPE credential_type AS ENUM (
     'GITHUB',
     'JIRA',
@@ -316,11 +303,10 @@ CREATE TABLE chunks (
     external_data_source_id UUID,
     external_id VARCHAR(512),
     chunk_index INTEGER NOT NULL,
-    chunk_type chunk_type,
+    chunk_type VARCHAR(255),
     content TEXT NOT NULL,
     embedding VECTOR(1536),
     embedding_model VARCHAR(255),
-    content_hash VARCHAR(64),
     chunk_metadata JSONB,
     access_scope resource_access_scope NOT NULL,
     team_id UUID,

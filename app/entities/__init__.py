@@ -10,7 +10,7 @@ resolve to.
 """
 
 from app.entities.chat import ChatSession, ChatSessionMessage, Citation, MessageRole
-from app.entities.chunks import Chunk, ChunkType
+from app.entities.chunks import Chunk
 from app.entities.data_sources import (
     CredentialType,
     ExternalDataSource,
@@ -30,7 +30,6 @@ __all__ = [
     "ChatSession",
     "ChatSessionMessage",
     "Chunk",
-    "ChunkType",
     "Citation",
     "CredentialType",
     "Department",
