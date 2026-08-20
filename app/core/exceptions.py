@@ -385,6 +385,27 @@ class LLMError(IngestionError):
     )
 
 
+
+class RetrievalExecutionError(IngestionError):
+    """A retrieval plan could not be run.
+
+    A 500 rather than a 502, because every way of reaching it is this server's
+    own fault rather than a vendor's: a step depending on one that can never
+    complete, a source with no retriever registered for it, or a retriever that
+    raised. The planner and `repair_plan` between them are supposed to make the
+    first two impossible, so reaching this means an assumption downstream of
+    them was wrong - which is worth failing loudly for rather than answering
+    from half a plan.
+
+    A model that fails while enriching a query is deliberately NOT this. That is
+    an `LLMError`, and saying "the executor broke" about a chat-model timeout
+    sends an operator to look in the wrong place.
+    """
+
+    status_code = 500
+    default_message = "The retrieval plan could not be executed."
+
+
 class EmptyQueryError(IngestionError):
     """There was no question to understand.
 

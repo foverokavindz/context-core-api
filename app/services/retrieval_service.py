@@ -1,9 +1,17 @@
+from app.entities.data_sources.source_type import SourceType
 from app.models.chat.message import ChatMessage
+from app.models.retrieval.access_context import AccessContext
 from app.models.retrieval.pipeline_result import RetrievalPipelineResult
+from app.retrieval.execution.executor import RetrievalExecutor
+from app.retrieval.execution.query_enricher import QueryEnricher
 from app.retrieval.llm import build_chat_model
 from app.retrieval.pipeline import RetrievalPipeline
 from app.retrieval.planning.planner import RetrievalPlanner
 from app.retrieval.prompt_processing.processor import PromptProcessor
+from app.retrieval.retrievers.confluence_retriever import ConfluenceRetriever
+from app.retrieval.retrievers.github_retriever import GitHubRetriever
+from app.retrieval.retrievers.jira_retriever import JiraRetriever
+from app.retrieval.retrievers.slack_retriever import SlackRetriever
 
 
 class RetrievalService:
@@ -12,20 +20,28 @@ class RetrievalService:
         self.pipeline = pipeline
 
     def start(
-        self, query: str, history: list[ChatMessage] | None = None
+        self,
+        query: str,
+        access: AccessContext,
+        history: list[ChatMessage] | None = None,
     ) -> RetrievalPipelineResult:
-        return self.pipeline.run(query=query, history=history)
+        return self.pipeline.run(query=query, access=access, history=history)
 
 
 def build_retrieval_service() -> RetrievalService:
-    """Wire the default stack together.
-
-    A function, not a module-level instance: `build_chat_model` reads the
-    environment, so building this at import time would make importing the module
-    require credentials. Both stages share the one model it returns.
-    """
 
     llm = build_chat_model()
+
+    executor = RetrievalExecutor(
+        retrievers={
+            SourceType.JIRA: JiraRetriever(),
+            SourceType.GITHUB: GitHubRetriever(),
+            SourceType.SLACK: SlackRetriever(),
+            SourceType.CONFLUENCE: ConfluenceRetriever(),
+        },
+        query_enricher=QueryEnricher(llm),
+    )
+
     return RetrievalService(
-        RetrievalPipeline(PromptProcessor(llm), RetrievalPlanner(llm))
+        RetrievalPipeline(PromptProcessor(llm), RetrievalPlanner(llm), executor)
     )

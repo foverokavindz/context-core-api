@@ -2,10 +2,18 @@
 
 A few small things, and the tests are about responsibilities rather than
 implementation: that each layer hands the whole question on and hands the whole
-answer back, that the two stages run in order and the second one is skipped when
-there is nothing to retrieve, that the analysis has the defaults the planner
-relies on, and that none of it needs credentials until something calls a model.
+answer back, that the three stages run in order and the last two are skipped
+when there is nothing to retrieve, that the analysis has the defaults the
+planner relies on, and that none of it needs credentials until something calls a
+model.
+
+What each stage actually decides is tested where that stage lives -
+test_prompt_processor, test_planner and test_retrieval_executor. Here all three
+are fakes, because what is worth asserting at this level is only the wiring
+between them.
 """
+
+from uuid import uuid4
 
 import pytest
 
@@ -13,6 +21,11 @@ from app.core.exceptions import LLMConfigurationError
 from app.entities.chat.message_role import MessageRole
 from app.entities.data_sources.source_type import SourceType
 from app.models.chat.message import ChatMessage
+from app.models.retrieval.access_context import AccessContext
+from app.models.retrieval.execution_result import (
+    RetrievalExecutionResult,
+    StepExecutionResult,
+)
 from app.models.retrieval.ontology.entity_type import EntityType
 from app.models.retrieval.ontology.information_need import InformationNeed
 from app.models.retrieval.ontology.query_intent import QueryIntent
@@ -28,6 +41,8 @@ QUERY = (
 )
 
 HISTORY = [ChatMessage(role=MessageRole.USER, content="Explain TRACK-25.")]
+
+ACCESS = AccessContext(user_id=uuid4(), team_id=uuid4(), department_id=uuid4())
 
 CHAT_MODEL_VARIABLES = (
     "AZURE_OPENAI_BASE_URL",
@@ -63,6 +78,18 @@ class FakePlanner:
         return self.answer
 
 
+class FakeExecutor:
+    """Records the plan it was asked to run and answers with a fixed result."""
+
+    def __init__(self, answer: RetrievalExecutionResult) -> None:
+        self.answer = answer
+        self.calls: list[tuple] = []
+
+    def execute(self, plan, analysis, access) -> RetrievalExecutionResult:
+        self.calls.append((plan, analysis, access))
+        return self.answer
+
+
 def analysis(**overrides) -> PromptAnalysis:
     fields = {
         "resolved_query": "Understand the previous authentication work.",
@@ -93,41 +120,75 @@ def plan() -> RetrievalPlan:
     )
 
 
+def execution() -> RetrievalExecutionResult:
+    return RetrievalExecutionResult(
+        steps=[
+            StepExecutionResult(
+                step_id="authentication_history",
+                source=SourceType.JIRA,
+                goal="Find previous authentication-related work",
+                executed_query="authentication previous changes requirements",
+            )
+        ]
+    )
+
+
 def pipeline_for(
-    given_analysis: PromptAnalysis, given_plan: RetrievalPlan | None = None
+    given_analysis: PromptAnalysis,
+    given_plan: RetrievalPlan | None = None,
+    given_execution: RetrievalExecutionResult | None = None,
 ):
-    """A pipeline over two fakes, plus both, for asserting on all three."""
+    """A pipeline over three fakes, plus each, for asserting on all four."""
     processor = FakePromptProcessor(given_analysis)
     planner = FakePlanner(given_plan or plan())
-    return RetrievalPipeline(processor, planner), processor, planner
+    executor = FakeExecutor(given_execution or execution())
+    return (
+        RetrievalPipeline(processor, planner, executor),
+        processor,
+        planner,
+        executor,
+    )
 
 
 # ---------------------------------------------------------------- pipeline
 
 
-def test_the_pipeline_asks_both_stages_and_returns_what_each_said() -> None:
+def test_the_pipeline_asks_every_stage_and_returns_what_each_said() -> None:
     expected_analysis, expected_plan = analysis(), plan()
-    pipeline, processor, planner = pipeline_for(expected_analysis, expected_plan)
+    expected_execution = execution()
+    pipeline, processor, _, _ = pipeline_for(
+        expected_analysis, expected_plan, expected_execution
+    )
 
-    result = pipeline.run(query=QUERY, history=HISTORY)
+    result = pipeline.run(query=QUERY, access=ACCESS, history=HISTORY)
 
     assert result.analysis is expected_analysis
     assert result.plan is expected_plan
+    assert result.execution is expected_execution
     assert processor.calls == [(QUERY, HISTORY)]
 
 
 def test_the_planner_is_given_the_analysis_the_prompt_processor_produced() -> None:
     expected = analysis()
-    pipeline, _, planner = pipeline_for(expected)
+    pipeline, _, planner, _ = pipeline_for(expected)
 
-    pipeline.run(query=QUERY)
+    pipeline.run(query=QUERY, access=ACCESS)
 
     assert planner.calls == [expected]
 
 
-def test_a_request_needing_no_retrieval_is_never_planned() -> None:
+def test_the_executor_is_given_the_plan_the_planner_produced() -> None:
+    expected_analysis, expected_plan = analysis(), plan()
+    pipeline, _, _, executor = pipeline_for(expected_analysis, expected_plan)
+
+    pipeline.run(query=QUERY, access=ACCESS)
+
+    assert executor.calls == [(expected_plan, expected_analysis, ACCESS)]
+
+
+def test_a_request_needing_no_retrieval_is_never_planned_or_executed() -> None:
     """Thanks, or an aside: no Jira, GitHub or Slack search comes of it."""
-    pipeline, _, planner = pipeline_for(
+    pipeline, _, planner, executor = pipeline_for(
         analysis(
             intent=QueryIntent.GENERAL_QUESTION,
             retrieval_required=False,
@@ -136,16 +197,18 @@ def test_a_request_needing_no_retrieval_is_never_planned() -> None:
         )
     )
 
-    result = pipeline.run(query="Thanks!")
+    result = pipeline.run(query="Thanks!", access=ACCESS)
 
     assert result.plan is None
+    assert result.execution is None
     assert planner.calls == []
+    assert executor.calls == []
 
 
 def test_the_pipeline_passes_a_missing_history_on_as_it_found_it() -> None:
-    pipeline, processor, _ = pipeline_for(analysis())
+    pipeline, processor, _, _ = pipeline_for(analysis())
 
-    pipeline.run(query=QUERY)
+    pipeline.run(query=QUERY, access=ACCESS)
 
     assert processor.calls == [(QUERY, None)]
 
@@ -155,21 +218,35 @@ def test_the_pipeline_passes_a_missing_history_on_as_it_found_it() -> None:
 
 def test_the_service_starts_the_pipeline_and_returns_its_result() -> None:
     expected_analysis, expected_plan = analysis(), plan()
-    pipeline, processor, _ = pipeline_for(expected_analysis, expected_plan)
+    expected_execution = execution()
+    pipeline, processor, _, _ = pipeline_for(
+        expected_analysis, expected_plan, expected_execution
+    )
 
-    result = RetrievalService(pipeline).start(query=QUERY, history=HISTORY)
+    result = RetrievalService(pipeline).start(
+        query=QUERY, access=ACCESS, history=HISTORY
+    )
 
     assert result.analysis is expected_analysis
     assert result.plan is expected_plan
+    assert result.execution is expected_execution
     assert processor.calls == [(QUERY, HISTORY)]
 
 
 def test_the_service_does_not_require_a_history() -> None:
-    pipeline, processor, _ = pipeline_for(analysis())
+    pipeline, processor, _, _ = pipeline_for(analysis())
 
-    RetrievalService(pipeline).start(query=QUERY)
+    RetrievalService(pipeline).start(query=QUERY, access=ACCESS)
 
     assert processor.calls == [(QUERY, None)]
+
+
+def test_the_service_hands_the_access_context_all_the_way_to_the_executor() -> None:
+    pipeline, _, _, executor = pipeline_for(analysis())
+
+    RetrievalService(pipeline).start(query=QUERY, access=ACCESS)
+
+    assert executor.calls[0][2] is ACCESS
 
 
 # ------------------------------------------------------- the analysis itself
