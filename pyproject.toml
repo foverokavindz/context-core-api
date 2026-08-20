@@ -65,6 +65,7 @@ packages = [
     "app.models.slack",
     "app.repository",
     "app.retrieval",
+    "app.retrieval.planning",
     "app.retrieval.prompt_processing",
     "app.services",
 ]
