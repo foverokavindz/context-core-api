@@ -52,6 +52,7 @@ packages = [
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",
+    "app.models.chat",
     "app.models.common",
     "app.models.confluence",
     "app.models.github",

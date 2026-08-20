@@ -15,6 +15,7 @@ from app.api.confluence_routes import router as confluence_router
 from app.api.github_routes import router as github_router
 from app.api.jira_routes import router as jira_router
 from app.api.slack_routes import router as slack_router
+from app.controllers.chat_controller import router as chat_router
 from app.controllers.ingestion_controller import router as ingestion_router
 from app.core.exceptions import IngestionError
 
@@ -46,6 +47,7 @@ app = FastAPI(
 # app.include_router(slack_router)
 
 app.include_router(ingestion_router)
+app.include_router(chat_router)
 
 
 @app.exception_handler(IngestionError)
