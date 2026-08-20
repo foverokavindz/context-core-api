@@ -14,8 +14,10 @@ A FastAPI service in two halves that meet in PostgreSQL:
 - **Ingestion** — connect an external system (GitHub, Jira, Confluence, Slack),
   pull its items, flatten them to text, cut them into chunks, embed the chunks,
   and persist `resources` + `chunks`.
-- **Retrieval** — embed a query with the same model and return the nearest
-  chunks. Retrieval only; nothing is generated from what it finds.
+- **Retrieval** — understand a question, and (in time) answer it from what
+  ingestion stored. One stage exists so far: the prompt processor, which
+  turns a question into a structured `PromptAnalysis`. Nothing is retrieved
+  or generated yet.
 
 Stack: FastAPI · Pydantic v2 · SQLAlchemy 2.0 (`Mapped`/`mapped_column`) ·
 PostgreSQL + `pgvector` via `psycopg` 3 · Alembic · OpenAI/Azure embeddings ·
@@ -69,7 +71,8 @@ Creates the `FastAPI` app, configures logging, includes the routers and
 registers **one** exception handler on the `IngestionError` base class, so every
 source's errors map to their own HTTP status through a single path. Exposes
 `GET /health`. The four per-source routers are currently **commented out** —
-only the ingestion and retrieval routers are mounted.
+only the ingestion and chat routers are mounted. Retrieval has no endpoint
+yet; it is reached from Python.
 
 ### `app/api/` — per-source routes (debug shape)
 `github_routes.py`, `jira_routes.py`, `confluence_routes.py`, `slack_routes.py`.
@@ -82,7 +85,7 @@ repository (minutes > an HTTP client's patience). Each also holds a
 | File | Endpoint | Job |
 | --- | --- | --- |
 | `ingestion_controller.py` | `POST /api/v1/ingestData/{external_source}` → `202` | Resolve the path segment to a `SourceType` (404 if unknown), check `source_type` matches the URL and that `config` carries `REQUIRED_CONFIG_KEYS` for it (400), then delegate |
-| `retrieval_controller.py` | `POST /api/v1/retrieve` | Delegate to `retrieve(...)`. Builds one module-level `ChunkEmbedder` and hands it over as a **dependency**, so tests override it with `app.dependency_overrides` rather than patching a global |
+| `chat_controller.py` | `POST /api/v1/chats`, `POST /api/v1/chats/{id}/query` | Open a conversation, and record a question against one. No answer is generated yet |
 
 Controllers know which sources exist and what a valid request looks like. They
 know nothing about chunks.
@@ -91,7 +94,8 @@ know nothing about chunks.
 | File | Job |
 | --- | --- |
 | `ingestion_service.py` | `start_ingestion(...)`: write the `ExternalDataSource`, queue a `PENDING` `SyncRun`, **commit**, hand the work to `BackgroundTasks`, return the two ids. An `IntegrityError` here means a bad `team_id`/`department_id`/`created_by_user_id` → 400 |
-| `retrieval_service.py` | `retrieve(...)`: embed the query, call `ChunkRepository.search_by_embedding`, project matches onto `RetrievedChunk`. Converts the request's `min_score` into the repository's `max_distance` (`1 - score`) — the repository speaks distance, because that is what the database compares |
+| `chat_service.py` | `create_chat(...)` / `send_query(...)`: the conversation itself — open a session, record a question against one the caller owns |
+| `retrieval_service.py` | `start(...)`: hands a question to the retrieval pipeline and returns the `PromptAnalysis` it produced. The one service that owns no transaction — it reads and writes no table |
 
 Both commit *before* they answer, so the ids a caller receives name rows that
 exist.
@@ -145,6 +149,21 @@ class EmbeddableChunk(Protocol):
 inheriting anything, and every service calls `embed_into(result, embedder)` in
 one line after its chunker.
 
+### `app/retrieval/` — understand the question
+
+| File | Job |
+| --- | --- |
+| `llm.py` | `build_chat_model()`: the chat model, from `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_CHAT_DEPLOYMENT`. A plain `ChatOpenAI` and not `AzureChatOpenAI`, for the reason `embedding_service.py` uses `OpenAI` and not `AzureOpenAI` — the base URL is Azure's OpenAI-compatible `/openai/v1` surface. A function rather than a module-level instance, so importing the package needs no credentials |
+| `pipeline.py` | `RetrievalPipeline.run(...)`: the stages, in order. One so far |
+| `prompt_processing/prompt.py` | The system prompt: what the four sources hold, what this stage may and may not decide, and four worked examples. Written brace-free, because `ChatPromptTemplate` reads braces as variable syntax |
+| `prompt_processing/processor.py` | `PromptProcessor.process(query, history)`: one model call, structured straight into `PromptAnalysis`. Takes its model rather than building one |
+
+The person's own words never pass through the prompt template — the history and
+the question are both `MessagesPlaceholder`s, so a question containing a brace is
+asked rather than raising. History is the caller's to supply: the last
+`MAX_HISTORY_MESSAGES` (6) turns travel with the question, nothing is summarized,
+and nothing is loaded from the database here.
+
 ### `app/models/` — Pydantic DTOs (never tables)
 One package per source with the same four names, plus the shared and
 source-agnostic ones:
@@ -154,7 +173,8 @@ source-agnostic ones:
 | `common/` | `PermissionScope` (`team_id`, `department_id`, `access_scope`, `external_data_source_id`), `EmbeddingCounts` |
 | `github/` `jira/` `confluence/` `slack/` | `request.py`, the boundary type (`file`/`issue`/`page`/`message`), `chunk.py`, `response.py` + limits |
 | `ingestion/` | `IngestDataRequest` + `REQUIRED_CONFIG_KEYS`, `IngestStartedResponse` |
-| `retrieval/` | `RetrieveRequest` (`query` ≤ 4,000 chars, `top_k` ≤ 50, scope filters, `min_score`), `RetrievedChunk` / `RetrieveResponse` — the chunk **without** its 1536-float vector |
+| `chat/` | `CreateChatRequest` / `SendQueryRequest` (`query` ≤ 4,000 chars) and their responses, `ChatMessage` (one turn, as the pipeline reads history), `LLMConfig` |
+| `retrieval/` | `PromptAnalysis` + `ExtractedEntity`, over `retrieval/ontology/` — the three closed vocabularies the prompt processor answers in: `QueryIntent`, `EntityType`, `InformationNeed`. Not database enums — nothing stores them, so they live with the DTO rather than in `entities/` |
 
 ### `app/entities/` — the database layer
 Seven groups: `organization/`, `teams/`, `data_sources/`, `documents/`,
@@ -211,14 +231,21 @@ POST /api/v1/ingestData/{source}
                          (one transaction, its own session)
 ```
 
-**Retrieve**
+**Understand a question** (no endpoint yet — called from Python)
 ```
-POST /api/v1/retrieve
-  retrieval_controller   validate (top_k ≤ 50, query ≤ 4,000 chars)
-  retrieval_service      embed the query (the only outbound call)
-  chunk_repository       filter → cosine-rank → outer-join resources
-  ← RetrieveResponse     RetrievedChunk[] with score = 1 − distance, no vectors
+RetrievalService.start(query, history)
+  retrieval/pipeline     one stage so far
+  prompt_processing      system prompt + the last 6 turns + the question
+  the chat model         one call, structured output (the only outbound call)
+  ← PromptAnalysis       resolved + improved query, intent, entities,
+                         information needs, explicitly named sources
 ```
+
+The stages after it — Planner, Executor, Retrievers, reranking, context
+building, answer generation — are not written. The prompt processor
+deliberately makes none of their decisions: it never chooses a source from a
+topic, never orders work, and never invents a ticket, repository or service
+the question did not mention.
 
 ## Conventions worth copying
 

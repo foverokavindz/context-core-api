@@ -6,7 +6,8 @@ into these messages; it is logged server-side instead. That keeps two things out
 of responses: internal detail, and any chance of echoing back credentials.
 
 The GitHub errors come first, then the Jira ones, then the Confluence ones, then
-the Slack ones, then the embedding ones, and the database one last. They are
+the Slack ones, then the embedding ones, then the chat-model ones, and the
+database one last. They are
 kept as separate classes
 rather than shared because the wording a client sees should name the system that
 actually failed, and because the vendors do not agree on what a given status
@@ -345,6 +346,55 @@ class EmbeddingError(IngestionError):
         "The embedding service could not be reached or returned an "
         "unusable response."
     )
+
+
+class LLMConfigurationError(IngestionError):
+    """The chat model is not configured on this deployment.
+
+    A 500 for the same reason EmbeddingConfigurationError is one, and it names
+    its own deployment variable rather than the embedding one: the two point at
+    different models on the same resource, and an operator told to check the
+    wrong variable finds it perfectly well set.
+    """
+
+    status_code = 500
+    default_message = (
+        "The chat model is not configured on this server. Set "
+        "AZURE_OPENAI_BASE_URL, AZURE_OPENAI_API_KEY and "
+        "AZURE_OPENAI_CHAT_DEPLOYMENT."
+    )
+
+
+class LLMError(IngestionError):
+    """The chat model failed, or answered with something we cannot use.
+
+    Both halves matter. The first is an ordinary API failure - unreachable,
+    throttled, or a rejected request. The second is a model that answered but
+    not in the shape that was asked for, which is a real possibility whenever
+    output is structured and is not something to paper over: a half-understood
+    question sends the whole pipeline after the wrong thing.
+
+    The provider's own words never reach this message. Only the exception's type
+    name is logged, which is enough to tell a timeout from a rejection without
+    putting a key, a prompt or a traceback into a response.
+    """
+
+    status_code = 502
+    default_message = (
+        "The chat model could not be reached or returned an unusable response."
+    )
+
+
+class EmptyQueryError(IngestionError):
+    """There was no question to understand.
+
+    The chat request models already reject a blank query, so this is the guard
+    for every other caller. It is raised before the model is called rather than
+    after, because an empty prompt costs a round trip to learn nothing.
+    """
+
+    status_code = 400
+    default_message = "A query is required."
 
 
 class DatabaseConfigurationError(IngestionError):
