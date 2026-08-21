@@ -1,4 +1,5 @@
 from app.entities.data_sources.source_type import SourceType
+from app.ingestion.embedding_service import ChunkEmbedder
 from app.models.chat.message import ChatMessage
 from app.models.retrieval.access_context import AccessContext
 from app.models.retrieval.pipeline_result import RetrievalPipelineResult
@@ -12,6 +13,7 @@ from app.retrieval.retrievers.confluence_retriever import ConfluenceRetriever
 from app.retrieval.retrievers.github_retriever import GitHubRetriever
 from app.retrieval.retrievers.jira_retriever import JiraRetriever
 from app.retrieval.retrievers.slack_retriever import SlackRetriever
+from app.retrieval.search.knowledge_search_service import KnowledgeSearchService
 
 
 class RetrievalService:
@@ -32,12 +34,14 @@ def build_retrieval_service() -> RetrievalService:
 
     llm = build_chat_model()
 
+    search = KnowledgeSearchService(ChunkEmbedder())
+
     executor = RetrievalExecutor(
         retrievers={
-            SourceType.JIRA: JiraRetriever(),
-            SourceType.GITHUB: GitHubRetriever(),
-            SourceType.SLACK: SlackRetriever(),
-            SourceType.CONFLUENCE: ConfluenceRetriever(),
+            SourceType.JIRA: JiraRetriever(search),
+            SourceType.GITHUB: GitHubRetriever(search),
+            SourceType.SLACK: SlackRetriever(search),
+            SourceType.CONFLUENCE: ConfluenceRetriever(search),
         },
         query_enricher=QueryEnricher(llm),
     )

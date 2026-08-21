@@ -69,6 +69,7 @@ packages = [
     "app.retrieval.planning",
     "app.retrieval.prompt_processing",
     "app.retrieval.retrievers",
+    "app.retrieval.search",
     "app.services",
 ]
 

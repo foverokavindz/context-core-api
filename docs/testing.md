@@ -40,6 +40,9 @@ response, a log or an error message.
 | `test_slack_ingestion_service.py`| the real Slack pipeline end to end with only the network faked; the funnel gap, and the connector closed before parsing  |
 | `test_slack_api.py`              | request validation, sampling vs truncation vs filtering, HTTP status mapping, token never echoed                        |
 | `test_ingestion_controller.py`   | the common endpoint: source resolution, the per-source config checks, what the ExternalDataSource is built from, and — running the pipeline directly — that permissions reach every item and chunk and that the token reaches neither the response nor the run file |
+| `test_source_retrievers.py`      | the four retrievers over a faked search service: each searches its own source, every SourceType has one, query/top_k/access pass through unchanged |
+| `test_knowledge_search_service.py` | the query embedded once and *that* vector reaching the repository, a session per search closed on every path including failure, never committing, and the three ways of having nothing to search costing neither a call nor a connection |
+| `test_chunk_search_query.py`     | **the vector query's two permission filters**, compiled to real SQL with `literal_binds`: team source ownership, the access-scope disjunction read from `resources` and not the chunk's stale copy, another team's ids appearing nowhere, unembedded chunks skipped, cosine ranking and `top_k` — plus the row mapping, and that no vector, token or connector config is ever selected |
 
 The Jira, Confluence and Slack connector tests drive a **real** `httpx.Client`
 through a mock transport, so base-URL joining, the auth header and query-string
