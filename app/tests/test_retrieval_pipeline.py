@@ -2,15 +2,15 @@
 
 A few small things, and the tests are about responsibilities rather than
 implementation: that each layer hands the whole question on and hands the whole
-answer back, that the three stages run in order and the last two are skipped
-when there is nothing to retrieve, that the analysis has the defaults the
-planner relies on, and that none of it needs credentials until something calls a
-model.
+answer back, that the stages run in order and that planning and execution are
+skipped when there is nothing to retrieve, that answering is not, that the
+analysis has the defaults the planner relies on, and that none of it needs
+credentials until something calls a model.
 
 What each stage actually decides is tested where that stage lives -
-test_prompt_processor, test_planner and test_retrieval_executor. Here all three
-are fakes, because what is worth asserting at this level is only the wiring
-between them.
+test_prompt_processor, test_planner, test_retrieval_executor and
+test_answer_generator. Here all four are fakes, because what is worth asserting
+at this level is only the wiring between them.
 """
 
 from uuid import uuid4
@@ -22,6 +22,7 @@ from app.entities.chat.message_role import MessageRole
 from app.entities.data_sources.source_type import SourceType
 from app.models.chat.message import ChatMessage
 from app.models.retrieval.access_context import AccessContext
+from app.models.retrieval.answer import GeneratedAnswer
 from app.models.retrieval.execution_result import (
     RetrievalExecutionResult,
     StepExecutionResult,
@@ -90,6 +91,18 @@ class FakeExecutor:
         return self.answer
 
 
+class FakeAnswerGenerator:
+    """Records what it was asked to write from and answers with fixed words."""
+
+    def __init__(self, answer: GeneratedAnswer) -> None:
+        self.answer = answer
+        self.calls: list[tuple] = []
+
+    def generate(self, analysis, execution=None, history=None) -> GeneratedAnswer:
+        self.calls.append((analysis, execution, history))
+        return self.answer
+
+
 def analysis(**overrides) -> PromptAnalysis:
     fields = {
         "resolved_query": "Understand the previous authentication work.",
@@ -133,6 +146,10 @@ def execution() -> RetrievalExecutionResult:
     )
 
 
+def answer() -> GeneratedAnswer:
+    return GeneratedAnswer(answer="Authentication is a JWT bearer token [1].")
+
+
 def pipeline_for(
     given_analysis: PromptAnalysis,
     given_plan: RetrievalPlan | None = None,
@@ -147,6 +164,23 @@ def pipeline_for(
         processor,
         planner,
         executor,
+    )
+
+
+def answering_pipeline_for(
+    given_analysis: PromptAnalysis,
+    given_execution: RetrievalExecutionResult | None = None,
+):
+    """The same pipeline with its last stage attached, plus that stage."""
+    generator = FakeAnswerGenerator(answer())
+    return (
+        RetrievalPipeline(
+            FakePromptProcessor(given_analysis),
+            FakePlanner(plan()),
+            FakeExecutor(given_execution or execution()),
+            generator,
+        ),
+        generator,
     )
 
 
@@ -203,6 +237,46 @@ def test_a_request_needing_no_retrieval_is_never_planned_or_executed() -> None:
     assert result.execution is None
     assert planner.calls == []
     assert executor.calls == []
+
+
+# ---------------------------------------------------------------- answering
+
+
+def test_the_answer_stage_is_given_what_the_executor_found() -> None:
+    expected_analysis = analysis()
+    expected_execution = execution()
+    pipeline, generator = answering_pipeline_for(
+        expected_analysis, expected_execution
+    )
+
+    result = pipeline.run(query=QUERY, access=ACCESS, history=HISTORY)
+
+    assert generator.calls == [(expected_analysis, expected_execution, HISTORY)]
+    assert result.answer.answer == answer().answer
+
+
+def test_a_question_needing_no_retrieval_is_still_answered() -> None:
+    """Nothing to search is not nothing to say."""
+    pipeline, generator = answering_pipeline_for(
+        analysis(intent=QueryIntent.GENERAL_QUESTION, retrieval_required=False)
+    )
+
+    result = pipeline.run(query="Thanks!", access=ACCESS)
+
+    assert result.answer.answer == answer().answer
+    assert result.plan is None
+    # Answered from the conversation, with no execution to answer from.
+    assert generator.calls[0][1] is None
+
+
+def test_a_pipeline_with_no_answer_stage_retrieves_and_stops() -> None:
+    """The retrieval-only pipeline is still a whole pipeline."""
+    pipeline, _, _, _ = pipeline_for(analysis())
+
+    result = pipeline.run(query=QUERY, access=ACCESS)
+
+    assert result.execution is not None
+    assert result.answer is None
 
 
 def test_the_pipeline_passes_a_missing_history_on_as_it_found_it() -> None:

@@ -37,7 +37,9 @@ app = FastAPI(
         "space's pages, flattens their storage markup into readable text, one "
         "chunk per page. Slack: pulls one channel's message history, drops "
         "thread replies and channel events, one chunk per message. Every run is "
-        "embedded and persisted as resources and chunks. No retrieval - yet."
+        "embedded and persisted as resources and chunks. Chat: one question "
+        "runs the retrieval pipeline - understood, planned, executed - and a "
+        "chat model writes the answer from what was found. No reranking yet."
     ),
 )
 

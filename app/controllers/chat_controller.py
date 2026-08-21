@@ -8,6 +8,7 @@ from app.core.db.dependencies import get_db
 from app.models.chat.request import CreateChatRequest, SendQueryRequest
 from app.models.chat.response import CreateChatResponse, SendQueryResponse
 from app.services.chat_service import ChatService
+from app.services.retrieval_service import RetrievalService, get_retrieval_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +32,20 @@ def create_chat(
 
 @router.post(
     "/chats/{chat_session_id}/query",
-    status_code=202,
+    status_code=200,
     response_model=SendQueryResponse,
-    summary="Send a query to a chat session",
+    summary="Ask a question in a chat session",
     response_description=(
-        "Confirmation that the question was stored. No answer is generated - "
-        "there is no retrieval pipeline behind this yet."
+        "The answer, the sources it was written from, and a trace of what the "
+        "retrieval pipeline did to arrive at it. The question and the answer "
+        "are both stored on the session."
     ),
 )
 def send_query(
     chat_session_id: UUID,
     request: SendQueryRequest,
     session: Session = Depends(get_db),
+    retrieval: RetrievalService = Depends(get_retrieval_service),
 ) -> SendQueryResponse:
-    """Record a user's question against one of their chat sessions."""
-    return ChatService(session).send_query(chat_session_id, request)
+
+    return ChatService(session, retrieval).send_query(chat_session_id, request)

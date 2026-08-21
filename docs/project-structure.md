@@ -87,7 +87,7 @@ repository (minutes > an HTTP client's patience). Each also holds a
 | File | Endpoint | Job |
 | --- | --- | --- |
 | `ingestion_controller.py` | `POST /api/v1/ingestData/{external_source}` → `202` | Resolve the path segment to a `SourceType` (404 if unknown), check `source_type` matches the URL and that `config` carries `REQUIRED_CONFIG_KEYS` for it (400), then delegate |
-| `chat_controller.py` | `POST /api/v1/chats`, `POST /api/v1/chats/{id}/query` | Open a conversation, and record a question against one. No answer is generated yet |
+| `chat_controller.py` | `POST /api/v1/chats` → `201`, `POST /api/v1/chats/{id}/query` → `200` | Open a conversation, and answer a question asked in one. The query endpoint runs the whole retrieval pipeline synchronously — several model calls and a search per plan step — and holds the connection until the answer exists. Nothing is streamed yet |
 
 Controllers know which sources exist and what a valid request looks like. They
 know nothing about chunks.
@@ -96,8 +96,8 @@ know nothing about chunks.
 | File | Job |
 | --- | --- |
 | `ingestion_service.py` | `start_ingestion(...)`: write the `ExternalDataSource`, queue a `PENDING` `SyncRun`, **commit**, hand the work to `BackgroundTasks`, return the two ids. An `IntegrityError` here means a bad `team_id`/`department_id`/`created_by_user_id` → 400 |
-| `chat_service.py` | `create_chat(...)` / `send_query(...)`: the conversation itself — open a session, record a question against one the caller owns |
-| `retrieval_service.py` | `start(...)`: hands a question and an `AccessContext` to the retrieval pipeline and returns the `RetrievalPipelineResult` — the analysis, and the plan and execution when retrieval was needed. `build_retrieval_service()` wires the default stack, sharing one chat model across all three model-calling stages. The one service that owns no transaction — it reads and writes no table |
+| `chat_service.py` | `create_chat(...)` / `send_query(...)`: the conversation itself — open a session, and answer a question asked in one the caller owns. `send_query` commits the question **before** the pipeline runs, so a model failure loses the answer and not the conversation, then commits the answer as a second `ASSISTANT` row. It projects the run into the response: the answer, its sources in citation order, and a `RetrievalTrace` of what was understood, planned and searched |
+| `retrieval_service.py` | `start(...)`: hands a question and an `AccessContext` to the retrieval pipeline and returns the `RetrievalPipelineResult` — the analysis, the plan and execution when retrieval was needed, and the answer. `build_retrieval_service()` wires the default stack, sharing one chat model across all four model-calling stages; `get_retrieval_service()` is the FastAPI dependency over it, `lru_cache`d so the clients are built once and lazy so an unconfigured deployment fails a request rather than failing to start. The one service that owns no transaction — it reads and writes no table |
 
 Both commit *before* they answer, so the ids a caller receives name rows that
 exist.
@@ -151,12 +151,12 @@ class EmbeddableChunk(Protocol):
 inheriting anything, and every service calls `embed_into(result, embedder)` in
 one line after its chunker.
 
-### `app/retrieval/` — understand the question, then plan for it
+### `app/retrieval/` — understand the question, plan for it, run it, answer it
 
 | File | Job |
 | --- | --- |
 | `llm.py` | `build_chat_model()`: the chat model, from `AZURE_OPENAI_BASE_URL`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_CHAT_DEPLOYMENT`. A plain `ChatOpenAI` and not `AzureChatOpenAI`, for the reason `embedding_service.py` uses `OpenAI` and not `AzureOpenAI` — the base URL is Azure's OpenAI-compatible `/openai/v1` surface. A function rather than a module-level instance, so importing the package needs no credentials |
-| `pipeline.py` | `RetrievalPipeline.run(...)`: the stages, in order. Three so far, and the planner and executor are both skipped outright when the analysis says no retrieval is required |
+| `pipeline.py` | `RetrievalPipeline.run(...)`: the stages, in order. Four, and the planner and executor are both skipped outright when the analysis says no retrieval is required — the answering stage is not, because nothing to search is not nothing to say. Its answer generator is optional: a pipeline built without one retrieves and stops, which is what a caller wanting only the retrieval gets |
 | `prompt_processing/prompt.py` | The system prompt: what the four sources hold, what this stage may and may not decide, and four worked examples. Written brace-free, because `ChatPromptTemplate` reads braces as variable syntax |
 | `prompt_processing/processor.py` | `PromptProcessor.process(query, history)`: one model call, structured straight into `PromptAnalysis`. Takes its model rather than building one |
 | `planning/prompt.py` | The planner's system prompt: what each source is best for, how information needs and entities shape a step, and three worked plans. Brace-free for the same reason |
@@ -165,6 +165,8 @@ one line after its chunker.
 | `execution/executor.py` | `RetrievalExecutor.execute(plan, analysis, access)`: runs the plan and decides nothing about it. Repeatedly takes the steps whose dependencies have all completed, runs them together on a `ThreadPoolExecutor`, and records each as a `StepExecutionResult`. Fails fast — an unrunnable dependency, an unregistered source or a retriever that raises all become a `RetrievalExecutionError` rather than half an answer |
 | `execution/prompt.py` | The enricher's system prompt: which terms are worth taking out of a dependency's results, and the instruction to improve a base query rather than replace it. Brace-free for the same reason |
 | `execution/query_enricher.py` | `QueryEnricher.enrich(request)`: one model call, structured straight into `EnrichedQuery`. Only ever called for a step with a `depends_on` — an independent step already has the query the planner wrote |
+| `answering/prompt.py` | The answering system prompt: cite as you go, claim only what a source says, say plainly when the sources do not answer the question, and never narrate the pipeline. It also states that retrieval order is not a ranking, because nothing reranks yet. **The answer is written as Markdown** — `##` headings, short paragraphs, `-` bullets, fenced blocks with a language tag for code, backticks for identifiers, plain `[1]` markers outside them — with one worked example of the shape and the instruction to keep the formatting in proportion to the answer. Brace-free for the same reason, which is why its example fence carries a brace-free arrow function |
+| `answering/answer_generator.py` | `AnswerGenerator.generate(analysis, execution, history)`: one model call, plain text rather than structured output, into a `GeneratedAnswer`. Every result the executor returned is shown, in plan order — **nothing is reranked and nothing is dropped for being weak**. The only trimming is what a context window forces: a chunk two steps both found is shown once at its first position, a chunk over `MAX_SOURCE_CHARACTERS` (2,000) is cut for the model but returned whole, and the list stops at `MAX_SOURCES` (24). The sources come back in the order they were shown, so `[2]` in the answer means the second of them |
 | `retrievers/base.py` | `SourceRetriever` — a `Protocol`, not a base class, for the reason `EmbeddableChunk` is one. One method: `retrieve(query, top_k, access)` |
 | `retrievers/{jira,github,slack,confluence}_retriever.py` | The four entry points. Each returns `[]`: the vector search, the chunk repository and the access filtering behind them are the next milestone, and an empty result is honest until there is an index to search |
 
@@ -184,7 +186,7 @@ source-agnostic ones:
 | `github/` `jira/` `confluence/` `slack/` | `request.py`, the boundary type (`file`/`issue`/`page`/`message`), `chunk.py`, `response.py` + limits |
 | `ingestion/` | `IngestDataRequest` + `REQUIRED_CONFIG_KEYS`, `IngestStartedResponse` |
 | `chat/` | `CreateChatRequest` / `SendQueryRequest` (`query` ≤ 4,000 chars) and their responses, `ChatMessage` (one turn, as the pipeline reads history), `LLMConfig` |
-| `retrieval/` | `PromptAnalysis` + `ExtractedEntity`, `RetrievalPlan` + `RetrievalStep`, `RetrievalResult` (the contract the four retrievers will answer in — the chunk columns plus its resource's title, and deliberately no embedding), `StepExecutionResult` + `RetrievalExecutionResult`, `QueryEnrichmentInput` + `EnrichedQuery`, `AccessContext` (who is asking; carried, never yet acted on), and the `RetrievalPipelineResult` carrying the analysis, the plan and the execution, over `retrieval/ontology/` — the three closed vocabularies the prompt processor answers in: `QueryIntent`, `EntityType`, `InformationNeed`. Not database enums — nothing stores them, so they live with the DTO rather than in `entities/`. Every field description is written for the model to read: they become the JSON schema `with_structured_output` sends |
+| `retrieval/` | `PromptAnalysis` + `ExtractedEntity`, `RetrievalPlan` + `RetrievalStep`, `RetrievalResult` (the contract the four retrievers will answer in — the chunk columns plus its resource's title, and deliberately no embedding), `StepExecutionResult` + `RetrievalExecutionResult`, `QueryEnrichmentInput` + `EnrichedQuery`, `AccessContext` (who is asking; carried, never yet acted on), `GeneratedAnswer` (the reply and the sources it was shown, in the order its citations number), and the `RetrievalPipelineResult` carrying the analysis, the plan, the execution and the answer, over `retrieval/ontology/` — the three closed vocabularies the prompt processor answers in: `QueryIntent`, `EntityType`, `InformationNeed`. Not database enums — nothing stores them, so they live with the DTO rather than in `entities/`. Every field description is written for the model to read: they become the JSON schema `with_structured_output` sends |
 
 ### `app/entities/` — the database layer
 Seven groups: `organization/`, `teams/`, `data_sources/`, `documents/`,
@@ -241,10 +243,12 @@ POST /api/v1/ingestData/{source}
                          (one transaction, its own session)
 ```
 
-**Understand a question** (no endpoint yet — called from Python)
+**Answer a question** (`POST /api/v1/chats/{id}/query`)
 ```
+ChatService.send_query
+  the question is stored and committed first
 RetrievalService.start(query, access, history)
-  retrieval/pipeline     two stages so far
+  retrieval/pipeline     four stages
   prompt_processing      system prompt + the last 6 turns + the question
   the chat model         one call, structured output
   → PromptAnalysis       resolved + improved query, intent, entities,
@@ -257,11 +261,17 @@ RetrievalService.start(query, access, history)
   query enrichment       one call per dependent step: what its dependencies
                          found becomes the query it is searched with
   the four retrievers    entry points — they find nothing yet
+  answering              every retrieved chunk, in plan order, with no
+                         reranking between the search and the model
+  the chat model         one call, plain text
   ← RetrievalPipelineResult
                          the analysis, a RetrievalPlan of at most four steps
-                         (source, goal, query, top_k, depends_on), and a
+                         (source, goal, query, top_k, depends_on), a
                          RetrievalExecutionResult recording what each step was
-                         actually searched with and what came back
+                         actually searched with and what came back, and the
+                         GeneratedAnswer written from it
+  the answer is stored as a second message, and returned with its
+  sources and a RetrievalTrace of how it was arrived at
 ```
 
 The plan is never mutated by the run. `RetrievalStep.query` stays as the planner
@@ -269,12 +279,18 @@ wrote it and the runtime query lives on `StepExecutionResult.executed_query`,
 which is what makes a disappointing answer traceable to the search that produced
 it.
 
-The stages after them — the retrievers' own vector search, reranking, context
-building, answer generation — are not written. Each stage deliberately
-makes none of the next one's decisions: the prompt processor never chooses a
-source from a topic and never orders work, the planner never retrieves, the
-executor never changes a plan or chooses a source, and none of them invents a
-ticket, repository or service the question did not mention.
+The one stage still missing between them is reranking: what the search returns
+is what the model is shown. That is deliberate for now — it is the only way to
+see, from an answer, whether a disappointing one came from a bad plan, a bad
+search or a bad read of good sources. The `RetrievalTrace` on the response is
+there for the same reason, and is expected to go behind a flag once the pipeline
+is trusted.
+
+Each stage deliberately makes none of the next one's decisions: the prompt
+processor never chooses a source from a topic and never orders work, the planner
+never retrieves, the executor never changes a plan or chooses a source, the
+answer generator never searches and never reorders what it was given, and none
+of them invents a ticket, repository or service the question did not mention.
 
 ## Conventions worth copying
 

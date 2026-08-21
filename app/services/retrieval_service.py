@@ -1,8 +1,11 @@
+from functools import lru_cache
+
 from app.entities.data_sources.source_type import SourceType
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.models.chat.message import ChatMessage
 from app.models.retrieval.access_context import AccessContext
 from app.models.retrieval.pipeline_result import RetrievalPipelineResult
+from app.retrieval.answering.answer_generator import AnswerGenerator
 from app.retrieval.execution.executor import RetrievalExecutor
 from app.retrieval.execution.query_enricher import QueryEnricher
 from app.retrieval.llm import build_chat_model
@@ -47,5 +50,18 @@ def build_retrieval_service() -> RetrievalService:
     )
 
     return RetrievalService(
-        RetrievalPipeline(PromptProcessor(llm), RetrievalPlanner(llm), executor)
+        RetrievalPipeline(
+            PromptProcessor(llm),
+            RetrievalPlanner(llm),
+            executor,
+            AnswerGenerator(llm),
+        )
     )
+
+
+@lru_cache(maxsize=1)
+def get_retrieval_service() -> RetrievalService:
+    """
+    Cached rather than built per request
+    """
+    return build_retrieval_service()
