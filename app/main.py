@@ -16,9 +16,16 @@ from app.api.github_routes import router as github_router
 from app.api.jira_routes import router as jira_router
 from app.api.slack_routes import router as slack_router
 from app.controllers.chat_controller import router as chat_router
+from app.controllers.department_controller import router as department_router
+from app.controllers.employee_controller import router as employee_router
 from app.controllers.ingestion_controller import router as ingestion_router
+from app.controllers.team_controller import router as team_router
 from app.controllers.workspace_controller import router as workspace_router
-from app.core.exceptions import IngestionError, WorkspaceAlreadyExistsError
+from app.core.exceptions import (
+    IngestionError,
+    OrganizationError,
+    WorkspaceAlreadyExistsError,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +59,9 @@ app = FastAPI(
 app.include_router(ingestion_router)
 app.include_router(chat_router)
 app.include_router(workspace_router)
+app.include_router(department_router)
+app.include_router(team_router)
+app.include_router(employee_router)
 
 
 @app.exception_handler(WorkspaceAlreadyExistsError)
@@ -59,6 +69,16 @@ def handle_workspace_already_exists(
     request: Request, exc: WorkspaceAlreadyExistsError
 ) -> JSONResponse:
     return JSONResponse(status_code=409, content={"detail": exc.message})
+
+
+@app.exception_handler(OrganizationError)
+def handle_organization_error(
+    request: Request, exc: OrganizationError
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+    )
 
 
 @app.exception_handler(IngestionError)

@@ -30,17 +30,17 @@ class Team(UUIDMixin, TimestampMixin, Base):
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_by_user_id: Mapped[UUID] = mapped_column(
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         ForeignKey("users.id"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
 
     __table_args__ = (UniqueConstraint("department_id", "name"),) # Ensure unique team names within the same department
 
     department: Mapped["Department"] = relationship(back_populates="teams")
-    creator: Mapped["User"] = relationship(back_populates="created_teams") # who created the team, not who belongs to it
+    creator: Mapped["User | None"] = relationship(back_populates="created_teams") # who created the team, not who belongs to it
     team_members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
 
     source_credentials: Mapped[list["SourceCredentials"]] = relationship(back_populates="team") # credentials are owned by the team, not held on it - a team may have one per provider

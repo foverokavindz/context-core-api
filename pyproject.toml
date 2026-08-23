@@ -12,6 +12,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "pydantic",
+    "pwdlib[argon2]",
     "PyGithub",
     "httpx",
     "beautifulsoup4",
