@@ -26,6 +26,14 @@ arrives at one.
 """
 
 
+class WorkspaceAlreadyExistsError(Exception):
+    default_message = "Workspace has already been created."
+
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
 class IngestionError(Exception):
     """Base class for every failure the ingestion pipeline reports to a client.
 
