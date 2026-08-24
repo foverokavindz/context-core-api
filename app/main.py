@@ -16,12 +16,14 @@ from app.api.github_routes import router as github_router
 from app.api.jira_routes import router as jira_router
 from app.api.slack_routes import router as slack_router
 from app.controllers.chat_controller import router as chat_router
+from app.controllers.auth_controller import router as auth_router
 from app.controllers.department_controller import router as department_router
 from app.controllers.employee_controller import router as employee_router
 from app.controllers.ingestion_controller import router as ingestion_router
 from app.controllers.team_controller import router as team_router
 from app.controllers.workspace_controller import router as workspace_router
 from app.core.exceptions import (
+    ApplicationAuthError,
     IngestionError,
     OrganizationError,
     WorkspaceAlreadyExistsError,
@@ -62,6 +64,23 @@ app.include_router(workspace_router)
 app.include_router(department_router)
 app.include_router(team_router)
 app.include_router(employee_router)
+app.include_router(auth_router)
+
+
+@app.exception_handler(ApplicationAuthError)
+def handle_application_auth_error(
+    request: Request, exc: ApplicationAuthError
+) -> JSONResponse:
+    headers = (
+        {"WWW-Authenticate": "Bearer"}
+        if exc.status_code == 401
+        else None
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.message},
+        headers=headers,
+    )
 
 
 @app.exception_handler(WorkspaceAlreadyExistsError)

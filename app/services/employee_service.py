@@ -2,7 +2,6 @@ import logging
 from uuid import uuid4
 
 from fastapi import HTTPException
-from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -12,14 +11,15 @@ from app.core.exceptions import (
     TeamDepartmentMismatchError,
     TeamNotFoundError,
 )
+from app.core.security import hash_password
 from app.entities import Team, TeamMember, User
 from app.models.employee import CreateEmployeeRequest, EmployeeResponse
 from app.repository.department_repository import DepartmentRepository
 from app.repository.employee_repository import EmployeeRepository
 from app.repository.team_repository import TeamRepository
+from app.repository.user_repository import UserRepository
 
 logger = logging.getLogger(__name__)
-password_hash = PasswordHash.recommended()
 
 
 class EmployeeService:
@@ -28,6 +28,7 @@ class EmployeeService:
         self.departments = DepartmentRepository(session)
         self.employees = EmployeeRepository(session)
         self.teams = TeamRepository(session)
+        self.users = UserRepository(session)
 
     def create_employee(self, request: CreateEmployeeRequest) -> EmployeeResponse:
         if self.departments.get_by_id(request.department_id) is None:
@@ -40,14 +41,14 @@ class EmployeeService:
         if team.department_id != request.department_id:
             raise TeamDepartmentMismatchError()
 
-        if self.employees.get_by_email(request.email) is not None:
+        if self.users.get_by_email(request.email) is not None:
             raise EmployeeAlreadyExistsError()
 
         user = User(
             id=uuid4(),
             email=request.email,
             username=None,
-            password_hash=password_hash.hash(request.password.get_secret_value()),
+            password_hash=hash_password(request.password.get_secret_value()),
             first_name=request.first_name,
             last_name=request.last_name,
             department_id=request.department_id,

@@ -133,7 +133,8 @@ control end to end:
   it: the `ExternalDataSource` a run records is built and never inserted, and a
   run's output goes to a file
 - no retrieval, reranking or LLM calls
-- no authentication — the team and user a request names are trusted as sent
+- authentication currently covers login and `/auth/me`; other endpoints still
+  trust the team and user values supplied by their callers
 - no credential table, and the access token sits on the source in plain text
 - no queue, no webhooks and no incremental indexing; the background run is
   FastAPI's own `BackgroundTasks` and does not survive a restart

@@ -2,12 +2,13 @@
 
 [← Documentation](README.md)
 
-Every token arrives as a pydantic `SecretStr`, which renders as `**********` in
-every repr, log line and serialisation. On the four per-source endpoints each is
-unwrapped exactly once — on the line that constructs the GitHub client, the line
-that builds the Jira or Confluence client's Basic-auth pair, or the line that
-builds Slack's `Authorization: Bearer` header — and never assigned to an
-attribute, so nothing a traceback or a debug log could print holds it.
+Every connector token arrives as a pydantic `SecretStr`, which renders as
+`**********` in every repr, log line and serialisation. On the four per-source
+endpoints each is unwrapped exactly once — on the line that constructs the
+GitHub client, the line that builds the Jira or Confluence client's Basic-auth
+pair, or the line that builds Slack's `Authorization: Bearer` header — and never
+assigned to an attribute, so nothing a traceback or a debug log could print
+holds it.
 
 On those four paths a token is never logged, persisted, included in a response,
 or written to disk. The connector is closed as soon as fetching finishes, so the
@@ -74,9 +75,16 @@ Sending a token in a request body is acceptable for this prototype. A production
 deployment would use HTTPS and a proper credential-management mechanism; that is
 explicitly out of scope here.
 
-There is also **no authentication on any endpoint**. `team_id`,
-`department_id` and `created_by_user_id` are taken from the request body and
-trusted as sent, so the permission fields stamped onto a run's chunks record
-what the caller *claimed* rather than what anyone verified. They are the right
-columns to filter on later; they are not a security boundary until something
-checks them.
+## Application authentication
+
+`POST /api/v1/auth/login` verifies the submitted password against the user's
+Argon2 hash and returns a signed JWT access token. The signing secret comes from
+`JWT_SECRET`; it is never returned or logged. Tokens carry only the user ID,
+application role, team ID, department ID, and issued/expiry timestamps.
+
+`GET /api/v1/auth/me` is protected by the reusable bearer-token dependency and
+reloads the user from the database. Other endpoints are not migrated in this
+milestone: ingestion and retrieval requests that contain `team_id`,
+`department_id`, or `created_by_user_id` still trust those client-supplied
+values. The JWT context makes that migration possible, but is not yet a resource
+authorization boundary.

@@ -25,7 +25,3 @@ class EmployeeRepository:
             .order_by(User.last_name, User.first_name, User.id)
         )
         return [tuple(row) for row in self.session.execute(statement).all()]
-
-    def get_by_email(self, email: str) -> User | None:
-        statement = select(User).where(User.email == email)
-        return self.session.scalars(statement).first()

@@ -45,6 +45,32 @@ class EmployeeAlreadyExistsError(OrganizationError):
     default_message = "An employee with this email already exists."
 
 
+class ApplicationAuthError(Exception):
+    status_code: int = 500
+    default_message: str = "Authentication failed."
+
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
+class InvalidCredentialsError(ApplicationAuthError):
+    status_code = 401
+    default_message = "Invalid email or password."
+
+
+class InvalidAccessTokenError(ApplicationAuthError):
+    status_code = 401
+    default_message = "Invalid or missing access token."
+
+
+class JWTConfigurationError(ApplicationAuthError):
+    status_code = 500
+    default_message = (
+        "JWT authentication is not configured correctly on this server."
+    )
+
+
 class IngestionError(Exception):
     """Base class for every failure the ingestion pipeline reports to a client.
 

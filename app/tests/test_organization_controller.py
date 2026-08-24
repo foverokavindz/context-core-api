@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.db.dependencies import get_db
+from app.core.security import password_hash
 from app.entities import (
     Department,
     JobTitle,
@@ -22,7 +23,6 @@ from app.main import app
 from app.repository.department_repository import DepartmentRepository
 from app.repository.employee_repository import EmployeeRepository
 from app.repository.team_repository import TeamRepository
-from app.services.employee_service import password_hash
 
 DEPARTMENTS = "/api/v1/departments"
 TEAMS = "/api/v1/teams"

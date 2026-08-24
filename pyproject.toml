@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]",
     "pydantic",
     "pwdlib[argon2]",
+    "PyJWT",
     "PyGithub",
     "httpx",
     "beautifulsoup4",

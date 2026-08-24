@@ -13,15 +13,17 @@ app/tests/test_ingestion_controller.py already use.
 
 Safe to run twice: anything already present is left alone.
 
-Development only. The password hash is not a real hash of anything - there is no
-login path yet, and the column is NOT NULL.
+Development only. The seeded login password defaults to ``Temporary123!`` and
+can be changed with ``DEV_SEED_PASSWORD``.
 """
 
+import os
 from uuid import UUID
 
 from sqlalchemy import select
 
 from app.core.db.session import SessionLocal
+from app.core.security import hash_password
 from app.entities.organization.department import Department
 from app.entities.organization.job_title import JobTitle
 from app.entities.organization.user import User
@@ -33,6 +35,8 @@ DEPARTMENT_ID = UUID("22222222-2222-2222-2222-222222222222")
 TEAM_ID = UUID("11111111-1111-1111-1111-111111111111")
 USER_ID = UUID("33333333-3333-3333-3333-333333333333")
 JOB_TITLE_ID = UUID("44444444-4444-4444-4444-444444444444")
+DEV_SEED_PASSWORD = os.getenv("DEV_SEED_PASSWORD", "Temporary123!")
+LEGACY_PLACEHOLDER_HASH = "not-a-real-hash"
 
 
 def seed() -> None:
@@ -70,7 +74,7 @@ def seed() -> None:
                     id=USER_ID,
                     email="dev@contextcore.local",
                     username="dev",
-                    password_hash="not-a-real-hash",
+                    password_hash=hash_password(DEV_SEED_PASSWORD),
                     first_name="Dev",
                     last_name="User",
                     department_id=DEPARTMENT_ID,
@@ -79,12 +83,17 @@ def seed() -> None:
             )
             session.flush()
             print(f"created user       {USER_ID}")
-        elif user.job_title_id is None:
-            # A database seeded before job titles existed here: fill the gap
-            # rather than leave the user title-less. An existing title is kept.
-            user.job_title_id = JOB_TITLE_ID
-            session.flush()
-            print(f"set job title on user {USER_ID}")
+        else:
+            if user.password_hash == LEGACY_PLACEHOLDER_HASH:
+                user.password_hash = hash_password(DEV_SEED_PASSWORD)
+                session.flush()
+                print(f"set login password on user {USER_ID}")
+            if user.job_title_id is None:
+                # A database seeded before job titles existed here: fill the
+                # gap rather than leave the user title-less.
+                user.job_title_id = JOB_TITLE_ID
+                session.flush()
+                print(f"set job title on user {USER_ID}")
 
         if session.get(Team, TEAM_ID) is None:
             session.add(
@@ -119,6 +128,10 @@ def seed() -> None:
     finally:
         session.close()
 
+    print()
+    print("Development login:")
+    print('  email: "dev@contextcore.local"')
+    print("  password: DEV_SEED_PASSWORD (defaults to Temporary123!)")
     print()
     print("Use these in the ingestData body:")
     print(f'  "team_id":            "{TEAM_ID}"')
