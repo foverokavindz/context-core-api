@@ -21,6 +21,7 @@ from app.entities import ChatSession, ChatSessionMessage, MessageRole, User
 from app.entities.data_sources.source_type import SourceType
 from app.entities.knowledge_sources.resource_type import ResourceType
 from app.main import app
+from app.tests.api_response_assertions import response_data
 from app.models.chat.llm_config import DEFAULT_CHAT_MODEL
 from app.models.chat.request import MAX_QUERY_LENGTH, SendQueryRequest
 from app.models.chat.response import SNIPPET_CHARACTERS
@@ -234,7 +235,7 @@ def test_a_chat_session_is_created_for_a_known_user(client, session) -> None:
     response = client.post(CHATS, json={"user_id": USER_ID})
 
     assert response.status_code == 201
-    assert UUID(response.json()["chat_session_id"])
+    assert UUID(response_data(response)["chat_session_id"])
     assert len(chat_sessions(session)) == 1
     assert session.commits == 1
 
@@ -245,7 +246,7 @@ def test_the_created_session_carries_the_user_and_the_title(client, session) -> 
     )
 
     chat = chat_sessions(session)[0]
-    assert str(chat.id) == response.json()["chat_session_id"]
+    assert str(chat.id) == response_data(response)["chat_session_id"]
     assert str(chat.user_id) == USER_ID
     assert chat.title == "Authentication investigation"
 
@@ -289,7 +290,7 @@ def test_a_query_is_answered(client, owned_chat) -> None:
     response = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
 
     assert response.status_code == 200
-    body = response.json()
+    body = response_data(response)
     assert body["chat_session_id"] == str(owned_chat.id)
     assert UUID(body["message_id"])
     assert UUID(body["answer_message_id"])
@@ -302,7 +303,7 @@ def test_the_question_and_the_answer_are_stored_as_two_messages(
 ) -> None:
     response = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
 
-    body = response.json()
+    body = response_data(response)
     question, answer = messages(session)
 
     assert str(question.id) == body["message_id"]
@@ -390,7 +391,9 @@ def test_the_pipeline_is_asked_once_per_query(client, owned_chat, retrieval) -> 
 def test_the_sources_come_back_in_the_order_the_answer_cites_them(
     client, owned_chat
 ) -> None:
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     assert [source["chunk_id"] for source in body["sources"]] == [
         str(source.chunk_id) for source in SOURCES
@@ -400,7 +403,9 @@ def test_the_sources_come_back_in_the_order_the_answer_cites_them(
 def test_a_source_names_where_it_came_from_and_shows_what_it_said(
     client, owned_chat
 ) -> None:
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     ticket = body["sources"][1]
     assert ticket["source"] == "JIRA"
@@ -416,7 +421,9 @@ def test_a_long_source_is_shown_as_a_snippet_rather_than_whole(
 ) -> None:
     retrieval.result = pipeline_result(sources=[retrieved("x" * 5_000)])
 
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     assert len(body["sources"][0]["snippet"]) == SNIPPET_CHARACTERS
 
@@ -428,7 +435,9 @@ def test_an_answer_from_nothing_carries_no_sources(
         answer="The retrieved sources do not say.", sources=[]
     )
 
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     assert body["answer"] == "The retrieved sources do not say."
     assert body["sources"] == []
@@ -438,7 +447,9 @@ def test_an_answer_from_nothing_carries_no_sources(
 
 
 def test_the_trace_says_what_was_understood_and_planned(client, owned_chat) -> None:
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     trace = body["retrieval"]
     assert trace["resolved_query"] == RESOLVED_QUERY
@@ -448,7 +459,9 @@ def test_the_trace_says_what_was_understood_and_planned(client, owned_chat) -> N
 
 
 def test_the_trace_says_what_each_step_searched_and_found(client, owned_chat) -> None:
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     step = body["retrieval"]["steps"][0]
     assert step["step_id"] == "authentication_code"
@@ -471,7 +484,9 @@ def test_a_question_needing_no_retrieval_traces_no_plan(
         answer=GeneratedAnswer(answer="You are welcome."),
     )
 
-    body = client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload()).json()
+    body = response_data(
+        client.post(f"{CHATS}/{owned_chat.id}/query", json=query_payload())
+    )
 
     assert body["answer"] == "You are welcome."
     assert body["sources"] == []

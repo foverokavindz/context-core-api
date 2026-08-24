@@ -17,6 +17,7 @@ from app.entities.base import Base
 from app.entities.organization.application_role import ApplicationRole
 from app.main import app
 from app.services.token_service import TokenService
+from app.tests.api_response_assertions import response_data, response_error
 
 LOGIN = "/api/v1/auth/login"
 ME = "/api/v1/auth/me"
@@ -148,7 +149,7 @@ def test_successful_login_returns_safe_user_and_required_claims(
     )
 
     assert response.status_code == 200
-    body = response.json()
+    body = response_data(response)
     assert body["token_type"] == "bearer"
     assert body["user"] == {
         "id": str(user.id),
@@ -193,7 +194,7 @@ def test_unknown_email_and_wrong_password_have_the_same_response(
     response = client.post(LOGIN, json={"email": email, "password": password})
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid email or password."}
+    assert response_error(response) == "Invalid email or password."
     assert response.headers["www-authenticate"] == "Bearer"
 
 
@@ -228,7 +229,7 @@ def test_unusable_accounts_cannot_log_in(
     )
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid email or password."}
+    assert response_error(response) == "Invalid email or password."
 
 
 def test_get_me_uses_token_identity_and_current_database_values(
@@ -237,10 +238,11 @@ def test_get_me_uses_token_identity_and_current_database_values(
 ) -> None:
     user, membership, _, _ = add_user(session)
     other, _, _, _ = add_user(session, email="other@example.com")
-    login = client.post(
+    login_response = client.post(
         LOGIN,
         json={"email": user.email, "password": PASSWORD},
-    ).json()
+    )
+    login = response_data(login_response)
 
     new_department = Department(id=uuid4(), name="Current Department")
     new_team = Team(
@@ -262,10 +264,11 @@ def test_get_me_uses_token_identity_and_current_database_values(
     )
 
     assert response.status_code == 200
-    assert response.json()["id"] == str(user.id)
-    assert response.json()["first_name"] == "Updated"
-    assert response.json()["department_id"] == str(new_department.id)
-    assert response.json()["team_id"] == str(new_team.id)
+    body = response_data(response)
+    assert body["id"] == str(user.id)
+    assert body["first_name"] == "Updated"
+    assert body["department_id"] == str(new_department.id)
+    assert body["team_id"] == str(new_team.id)
 
 
 @pytest.mark.parametrize(
@@ -283,7 +286,7 @@ def test_missing_or_malformed_bearer_credentials_return_401(
     response = client.get(ME, headers=headers)
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid or missing access token."}
+    assert response_error(response) == "Invalid or missing access token."
     assert response.headers["www-authenticate"] == "Bearer"
 
 
@@ -345,7 +348,7 @@ def test_token_with_invalid_claim_type_or_value_returns_401(
     response = client.get(ME, headers=bearer(token))
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Invalid or missing access token."}
+    assert response_error(response) == "Invalid or missing access token."
 
 
 def test_get_me_rejects_a_token_for_a_missing_user(client: TestClient) -> None:
@@ -363,10 +366,11 @@ def test_get_me_rechecks_that_the_user_is_active(
     session: Session,
 ) -> None:
     user, _, _, _ = add_user(session)
-    token = client.post(
+    login_response = client.post(
         LOGIN,
         json={"email": user.email, "password": PASSWORD},
-    ).json()["access_token"]
+    )
+    token = response_data(login_response)["access_token"]
     user.is_active = False
     session.commit()
 
@@ -416,9 +420,7 @@ def test_missing_jwt_secret_returns_a_safe_500(
         app.dependency_overrides.pop(get_db, None)
 
     assert response.status_code == 500
-    assert response.json() == {
-        "detail": (
-            "JWT authentication is not configured correctly on this server."
-        )
-    }
+    assert response_error(response) == (
+        "JWT authentication is not configured correctly on this server."
+    )
     assert "JWT_SECRET" not in response.text

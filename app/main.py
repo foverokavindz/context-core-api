@@ -9,7 +9,9 @@ Authorization header.
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.confluence_routes import router as confluence_router
 from app.api.github_routes import router as github_router
@@ -28,6 +30,8 @@ from app.core.exceptions import (
     OrganizationError,
     WorkspaceAlreadyExistsError,
 )
+from app.core.responses import error_response, error_text
+from app.models.common.api_response import ApiResponse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,21 +40,23 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+ERROR_RESPONSES = {
+    400: {"model": ApiResponse[None], "description": "Bad request"},
+    401: {"model": ApiResponse[None], "description": "Unauthorized"},
+    403: {"model": ApiResponse[None], "description": "Forbidden"},
+    404: {"model": ApiResponse[None], "description": "Not found"},
+    409: {"model": ApiResponse[None], "description": "Conflict"},
+    422: {"model": ApiResponse[None], "description": "Validation error"},
+    429: {"model": ApiResponse[None], "description": "Too many requests"},
+    500: {"model": ApiResponse[None], "description": "Internal server error"},
+    502: {"model": ApiResponse[None], "description": "Upstream service error"},
+}
+
 app = FastAPI(
     title="Context Core Ingestion API",
     version="0.1.0",
-    description=(
-        "Stage one of the ingestion pipeline. GitHub: pulls TypeScript source "
-        "out of a repository, filters it, and parses it into code chunks with "
-        "Tree-sitter. Jira: pulls a project's Epics and Stories, flattens their "
-        "descriptions and links them, one chunk per issue. Confluence: pulls one "
-        "space's pages, flattens their storage markup into readable text, one "
-        "chunk per page. Slack: pulls one channel's message history, drops "
-        "thread replies and channel events, one chunk per message. Every run is "
-        "embedded and persisted as resources and chunks. Chat: one question "
-        "runs the retrieval pipeline - understood, planned, executed - and a "
-        "chat model writes the answer from what was found. No reranking yet."
-    ),
+    description=( "" ),
+    responses=ERROR_RESPONSES,
 )
 
 # app.include_router(github_router)
@@ -76,9 +82,9 @@ def handle_application_auth_error(
         if exc.status_code == 401
         else None
     )
-    return JSONResponse(
+    return error_response(
+        exc.message,
         status_code=exc.status_code,
-        content={"detail": exc.message},
         headers=headers,
     )
 
@@ -87,16 +93,16 @@ def handle_application_auth_error(
 def handle_workspace_already_exists(
     request: Request, exc: WorkspaceAlreadyExistsError
 ) -> JSONResponse:
-    return JSONResponse(status_code=409, content={"detail": exc.message})
+    return error_response(exc.message, status_code=409)
 
 
 @app.exception_handler(OrganizationError)
 def handle_organization_error(
     request: Request, exc: OrganizationError
 ) -> JSONResponse:
-    return JSONResponse(
+    return error_response(
+        exc.message,
         status_code=exc.status_code,
-        content={"detail": exc.message},
     )
 
 
@@ -112,10 +118,52 @@ def handle_ingestion_error(request: Request, exc: IngestionError) -> JSONRespons
     logger.info(
         "Ingestion failed with %s -> HTTP %d", type(exc).__name__, exc.status_code
     )
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+    return error_response(exc.message, status_code=exc.status_code)
 
 
-@app.get("/health", tags=["health"])
-def health() -> dict[str, str]:
+@app.exception_handler(RequestValidationError)
+def handle_request_validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    issues: list[str] = []
+    for issue in exc.errors():
+        location = ".".join(str(part) for part in issue.get("loc", ()))
+        prefix = f"{location}: " if location else ""
+        issues.append(f"{prefix}{issue.get('msg', 'Invalid value')}")
+    detail = "; ".join(issues) or "The request is invalid."
+    return error_response(detail, status_code=422)
+
+
+@app.exception_handler(StarletteHTTPException)
+def handle_http_exception(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
+    return error_response(
+        error_text(exc.detail),
+        status_code=exc.status_code,
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(Exception)
+def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+    logger.error(
+        "Unhandled %s during %s %s",
+        type(exc).__name__,
+        request.method,
+        request.url.path,
+    )
+    return error_response(
+        "An unexpected server error occurred.",
+        status_code=500,
+    )
+
+
+@app.get(
+    "/health",
+    tags=["health"],
+    response_model=ApiResponse[dict[str, str]],
+)
+def health() -> ApiResponse[dict[str, str]]:
     """Liveness check. No outside system is contacted."""
-    return {"status": "ok"}
+    return ApiResponse[dict[str, str]].ok({"status": "ok"})

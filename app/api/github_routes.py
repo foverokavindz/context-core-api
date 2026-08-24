@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 
 from app.ingestion.embedding_service import ChunkEmbedder
 from app.ingestion.ingestion_service import GitHubIngestionService, IngestionResult
+from app.models.common.api_response import ApiResponse
 from app.models.common.embedding_counts import EmbeddingCounts
 from app.models.github.request import GitHubIngestRequest
 from app.models.github.response import (
@@ -30,27 +31,24 @@ router = APIRouter(prefix="/api/v1/github", tags=["github"])
 _service = GitHubIngestionService(embedder=ChunkEmbedder())
 
 def get_ingestion_service() -> GitHubIngestionService:
-    """Supply the service to the route.
 
-    A FastAPI dependency rather than a direct import so tests can override it
-    with `app.dependency_overrides` instead of reaching into module globals.
-    """
     return _service
 
 
-@router.post( "/ingest", response_model=IngestResponse, summary="Ingest a GitHub repository into embedded code chunks",
+@router.post(
+    "/ingest",
+    response_model=ApiResponse[IngestResponse],
+    summary="Ingest a GitHub repository into embedded code chunks",
     response_description=(
         "Counts for each pipeline stage, plus a sample of files and chunks - "
         "each with its vector - for verification."
     ),
 )
-def ingest_repository(request: GitHubIngestRequest, service: GitHubIngestionService = Depends(get_ingestion_service),) -> IngestResponse:
-    """Fetch, filter, parse, chunk and embed one repository branch.
+def ingest_repository(
+    request: GitHubIngestRequest,
+    service: GitHubIngestionService = Depends(get_ingestion_service),
+) -> ApiResponse[IngestResponse]:
 
-    The response is a verification aid: it reports the full counts but only a
-    sample of the files and chunks, because a real repository would otherwise
-    return megabytes of source - and, with vectors, tens of megabytes.
-    """
     result = service.ingest(
         token=request.token,
         repository=request.repository,
@@ -58,22 +56,11 @@ def ingest_repository(request: GitHubIngestRequest, service: GitHubIngestionServ
         max_files=request.max_files,
         embed=request.embed,
     )
-    return to_response(result, full=request.full)
+    return ApiResponse[IngestResponse].ok(to_response(result, full=request.full))
 
 
 def to_response(result: IngestionResult, *, full: bool = False) -> IngestResponse:
-    """Project the internal result onto the HTTP response.
-
-    The pipeline always processes the whole repository; `full` only decides how
-    many of the files and chunks are serialised. Sampled by default because a
-    real repository produces hundreds of chunks and the payload gets unwieldy
-    fast - but whatever is serialised is serialised whole, contents and vectors
-    included.
-
-    Public rather than private because the background pipeline serialises its
-    run through this same projection - one definition of what a GitHub run looks
-    like as JSON, whether it arrived over HTTP or was written to a file.
-    """
+    
     file_limit = None if full else SAMPLE_FILES_LIMIT
     chunk_limit = None if full else SAMPLE_CHUNKS_LIMIT
 

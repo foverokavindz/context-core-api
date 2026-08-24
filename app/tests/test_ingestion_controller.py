@@ -28,6 +28,7 @@ from app.entities.data_sources.source_type import SourceType
 from app.entities.knowledge_sources.resource_access_scope import ResourceAccessScope
 from app.ingestion.ingestion_service import IngestionResult
 from app.main import app
+from app.tests.api_response_assertions import response_data, response_error
 from app.models.github.chunk import CodeChunk
 from app.models.github.file import RepositoryFile
 from app.models.ingestion.request import IngestDataRequest
@@ -167,7 +168,7 @@ def test_every_source_is_accepted(client, spy, source: str) -> None:
     response = client.post(f"{ENDPOINT}/{source}", json=payload(source))
 
     assert response.status_code == 202
-    body = response.json()
+    body = response_data(response)
     assert body["source_type"] == source.upper()
     assert body["title"] == "TrackIt API"
     assert body["status"] == "PIPELINE_STARTED"
@@ -180,7 +181,7 @@ def test_the_path_segment_is_case_insensitive(client, spy) -> None:
     response = client.post(f"{ENDPOINT}/GitHub", json=payload("github"))
 
     assert response.status_code == 202
-    assert response.json()["source_type"] == "GITHUB"
+    assert response_data(response)["source_type"] == "GITHUB"
 
 
 def test_the_response_never_carries_the_token(client, spy) -> None:
@@ -196,7 +197,7 @@ def test_the_external_data_source_is_built_from_the_request(client, spy) -> None
     response = client.post(f"{ENDPOINT}/github", json=payload())
 
     source, _, _ = spy.calls[0]
-    assert str(source.id) == response.json()["external_data_source_id"]
+    assert str(source.id) == response_data(response)["external_data_source_id"]
     assert source.name == "TrackIt API"
     assert source.source_type is SourceType.GITHUB
     assert source.status is SourceStatus.ACTIVE
@@ -248,7 +249,9 @@ def test_an_unknown_source_is_a_404(client, spy, segment: str) -> None:
 
 
 def test_the_404_names_what_is_supported(client, spy) -> None:
-    detail = client.post(f"{ENDPOINT}/gitlab", json=payload()).json()["detail"]
+    detail = response_error(
+        client.post(f"{ENDPOINT}/gitlab", json=payload())
+    )
 
     assert "gitlab" in detail
     for source in CONFIGS:
@@ -271,7 +274,7 @@ def test_a_missing_config_key_is_a_400(client, spy, source: str, missing: str) -
     response = client.post(f"{ENDPOINT}/{source}", json=payload(source, config=config))
 
     assert response.status_code == 400
-    assert missing in response.json()["detail"]
+    assert missing in response_error(response)
     assert not spy.calls
 
 
@@ -287,7 +290,7 @@ def test_a_blank_config_value_is_a_400(client, spy, value: str) -> None:
     )
 
     assert response.status_code == 400
-    assert "repository" in response.json()["detail"]
+    assert "repository" in response_error(response)
     assert not spy.calls
 
 

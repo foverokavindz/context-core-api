@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.db.dependencies import get_db
 from app.models.chat.request import CreateChatRequest, SendQueryRequest
 from app.models.chat.response import CreateChatResponse, SendQueryResponse
+from app.models.common.api_response import ApiResponse
 from app.services.chat_service import ChatService
 from app.services.retrieval_service import RetrievalService, get_retrieval_service
 
@@ -18,22 +19,23 @@ router = APIRouter(prefix="/api/v1", tags=["chat"])
 @router.post(
     "/chats",
     status_code=201,
-    response_model=CreateChatResponse,
+    response_model=ApiResponse[CreateChatResponse],
     summary="Open a chat session",
     response_description="The id of the conversation that was opened.",
 )
 def create_chat(
     request: CreateChatRequest,
     session: Session = Depends(get_db),
-) -> CreateChatResponse:
+) -> ApiResponse[CreateChatResponse]:
     """Start a conversation for a user."""
-    return ChatService(session).create_chat(request)
+    chat = ChatService(session).create_chat(request)
+    return ApiResponse[CreateChatResponse].ok(chat)
 
 
 @router.post(
     "/chats/{chat_session_id}/query",
     status_code=200,
-    response_model=SendQueryResponse,
+    response_model=ApiResponse[SendQueryResponse],
     summary="Ask a question in a chat session",
     response_description=(
         "The answer, the sources it was written from, and a trace of what the "
@@ -46,6 +48,7 @@ def send_query(
     request: SendQueryRequest,
     session: Session = Depends(get_db),
     retrieval: RetrievalService = Depends(get_retrieval_service),
-) -> SendQueryResponse:
+) -> ApiResponse[SendQueryResponse]:
 
-    return ChatService(session, retrieval).send_query(chat_session_id, request)
+    answer = ChatService(session, retrieval).send_query(chat_session_id, request)
+    return ApiResponse[SendQueryResponse].ok(answer)

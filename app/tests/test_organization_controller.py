@@ -23,6 +23,7 @@ from app.main import app
 from app.repository.department_repository import DepartmentRepository
 from app.repository.employee_repository import EmployeeRepository
 from app.repository.team_repository import TeamRepository
+from app.tests.api_response_assertions import response_data, response_error
 
 DEPARTMENTS = "/api/v1/departments"
 TEAMS = "/api/v1/teams"
@@ -95,7 +96,7 @@ def create_department(client: TestClient, name: str = "Engineering") -> dict:
         json={"name": name, "description": f"The {name} department."},
     )
     assert response.status_code == 201
-    return response.json()
+    return response_data(response)
 
 
 def create_team(
@@ -112,7 +113,7 @@ def create_team(
         },
     )
     assert response.status_code == 201
-    return response.json()
+    return response_data(response)
 
 
 def employee_payload(team_id: str, department_id: str, **overrides) -> dict:
@@ -133,7 +134,7 @@ def test_empty_collections_return_an_empty_list(client, endpoint: str) -> None:
     response = client.get(endpoint)
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response_data(response) == []
 
 
 def test_get_endpoints_do_not_commit(client, session) -> None:
@@ -153,11 +154,11 @@ def test_department_is_created_and_returned_by_the_list(client, session) -> None
     )
 
     assert response.status_code == 201
-    body = response.json()
+    body = response_data(response)
     assert UUID(body["id"])
     assert body["name"] == "Engineering"
     assert body["description"] == "Software engineering."
-    assert client.get(DEPARTMENTS).json() == [body]
+    assert response_data(client.get(DEPARTMENTS)) == [body]
     assert session.commits == 1
 
 
@@ -172,7 +173,7 @@ def test_departments_are_listed_deterministically(client) -> None:
     create_department(client, "Marketing")
     create_department(client, "Engineering")
 
-    departments = client.get(DEPARTMENTS).json()
+    departments = response_data(client.get(DEPARTMENTS))
 
     assert [department["name"] for department in departments] == [
         "Engineering",
@@ -186,8 +187,8 @@ def test_duplicate_department_is_a_conflict(client) -> None:
     response = client.post(DEPARTMENTS, json={"name": "Engineering"})
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "Department already exists."}
-    assert len(client.get(DEPARTMENTS).json()) == 1
+    assert response_error(response) == "Department already exists."
+    assert len(response_data(client.get(DEPARTMENTS))) == 1
 
 
 def test_team_is_created_for_a_department(client, session) -> None:
@@ -202,12 +203,12 @@ def test_team_is_created_for_a_department(client, session) -> None:
     )
 
     assert response.status_code == 201
-    body = response.json()
+    body = response_data(response)
     assert UUID(body["id"])
     assert body["department_id"] == department["id"]
     assert body["name"] == "Platform"
     assert body["description"] is None
-    assert client.get(TEAMS).json() == [body]
+    assert response_data(client.get(TEAMS)) == [body]
 
     team = session.get(Team, UUID(body["id"]))
     assert team.department_id == UUID(department["id"])
@@ -221,7 +222,7 @@ def test_team_requires_an_existing_department(client) -> None:
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Department not found."}
+    assert response_error(response) == "Department not found."
 
 
 def test_team_name_is_unique_within_its_department(client) -> None:
@@ -234,9 +235,7 @@ def test_team_name_is_unique_within_its_department(client) -> None:
     )
 
     assert response.status_code == 409
-    assert response.json() == {
-        "detail": "Team already exists in this department."
-    }
+    assert response_error(response) == "Team already exists in this department."
 
 
 def test_departments_may_have_teams_with_the_same_name(client) -> None:
@@ -261,7 +260,7 @@ def test_employee_creation_persists_user_and_membership(client, session) -> None
     )
 
     assert response.status_code == 201
-    body = response.json()
+    body = response_data(response)
     assert UUID(body["id"])
     assert body == {
         "id": body["id"],
@@ -300,8 +299,8 @@ def test_employee_response_never_exposes_password_material(client, session) -> N
 
     assert PASSWORD not in response.text
     assert user.password_hash not in response.text
-    assert "password" not in response.json()
-    assert "password_hash" not in response.json()
+    assert "password" not in response_data(response)
+    assert "password_hash" not in response_data(response)
 
 
 def test_employee_can_receive_explicit_existing_roles(client) -> None:
@@ -319,8 +318,9 @@ def test_employee_can_receive_explicit_existing_roles(client) -> None:
     )
 
     assert response.status_code == 201
-    assert response.json()["application_role"] == "HR"
-    assert response.json()["member_role"] == "TEAM_LEAD"
+    body = response_data(response)
+    assert body["application_role"] == "HR"
+    assert body["member_role"] == "TEAM_LEAD"
 
 
 def test_employee_requires_an_existing_team(client, session) -> None:
@@ -331,7 +331,7 @@ def test_employee_requires_an_existing_team(client, session) -> None:
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Team not found."}
+    assert response_error(response) == "Team not found."
     assert session.scalars(select(User)).all() == []
 
 
@@ -345,7 +345,7 @@ def test_employee_requires_an_existing_department(client, session) -> None:
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Department not found."}
+    assert response_error(response) == "Department not found."
     assert session.scalars(select(User)).all() == []
 
 
@@ -360,9 +360,9 @@ def test_employee_department_must_match_the_team(client, session) -> None:
     )
 
     assert response.status_code == 400
-    assert response.json() == {
-        "detail": "department_id does not match the selected team."
-    }
+    assert response_error(response) == (
+        "department_id does not match the selected team."
+    )
     assert session.scalars(select(User)).all() == []
 
 
@@ -385,9 +385,9 @@ def test_duplicate_employee_email_is_a_conflict(client, session) -> None:
     )
 
     assert response.status_code == 409
-    assert response.json() == {
-        "detail": "An employee with this email already exists."
-    }
+    assert response_error(response) == (
+        "An employee with this email already exists."
+    )
     assert len(session.scalars(select(User)).all()) == 1
     assert len(session.scalars(select(TeamMember)).all()) == 1
 
@@ -398,9 +398,10 @@ def test_get_employees_returns_created_employees(client) -> None:
     created = client.post(
         EMPLOYEES,
         json=employee_payload(team["id"], department["id"]),
-    ).json()
+    )
+    created = response_data(created)
 
-    assert client.get(EMPLOYEES).json() == [created]
+    assert response_data(client.get(EMPLOYEES)) == [created]
 
 
 def test_get_employees_excludes_users_without_membership(client, session) -> None:
@@ -415,7 +416,7 @@ def test_get_employees_excludes_users_without_membership(client, session) -> Non
     )
     session.commit()
 
-    assert client.get(EMPLOYEES).json() == []
+    assert response_data(client.get(EMPLOYEES)) == []
 
 
 @pytest.mark.parametrize(
@@ -510,6 +511,6 @@ def test_failed_employee_creation_rolls_back(
     )
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "The employee could not be created."}
+    assert response_error(response) == "The employee could not be created."
     assert session.commits == commits_before
     assert session.rollbacks == rollbacks_before + 1

@@ -12,6 +12,7 @@ from app.models.auth import (
     LoginRequest,
     LoginResponse,
 )
+from app.models.common.api_response import ApiResponse
 from app.services.auth_service import AuthService
 from app.services.token_service import TokenService
 
@@ -21,20 +22,21 @@ router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 @router.post(
     "/login",
     status_code=status.HTTP_200_OK,
-    response_model=LoginResponse,
+    response_model=ApiResponse[LoginResponse],
 )
 def login(
     request: LoginRequest,
     session: Session = Depends(get_db),
     token_service: TokenService = Depends(get_token_service),
-) -> LoginResponse:
-    return AuthService(session, token_service).login(request)
+) -> ApiResponse[LoginResponse]:
+    result = AuthService(session, token_service).login(request)
+    return ApiResponse[LoginResponse].ok(result)
 
 
 @router.get(
     "/me",
     status_code=status.HTTP_200_OK,
-    response_model=CurrentUserResponse,
+    response_model=ApiResponse[CurrentUserResponse],
 )
 def get_me(
     user_context: AuthenticatedUserContext = Depends(
@@ -42,5 +44,6 @@ def get_me(
     ),
     session: Session = Depends(get_db),
     token_service: TokenService = Depends(get_token_service),
-) -> CurrentUserResponse:
-    return AuthService(session, token_service).get_current_user(user_context)
+) -> ApiResponse[CurrentUserResponse]:
+    user = AuthService(session, token_service).get_current_user(user_context)
+    return ApiResponse[CurrentUserResponse].ok(user)

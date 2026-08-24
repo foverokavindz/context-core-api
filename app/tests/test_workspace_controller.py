@@ -8,6 +8,7 @@ from app.core.db.dependencies import get_db
 from app.entities import Workspace
 from app.main import app
 from app.repository.workspace_repository import WorkspaceRepository
+from app.tests.api_response_assertions import response_data, response_error
 
 ENDPOINT = "/api/v1/workspace"
 
@@ -81,7 +82,7 @@ def test_workspace_is_created_and_persisted(client, session) -> None:
     response = client.post(ENDPOINT, json=full_payload())
 
     assert response.status_code == 201
-    body = response.json()
+    body = response_data(response)
     assert UUID(body["id"])
     assert body == {"id": body["id"], **full_payload()}
 
@@ -98,9 +99,10 @@ def test_optional_fields_default_to_null(client, session) -> None:
     response = client.post(ENDPOINT, json={"company_name": "Context Core"})
 
     assert response.status_code == 201
-    assert response.json()["subtitle"] is None
-    assert response.json()["description"] is None
-    assert response.json()["logo"] is None
+    body = response_data(response)
+    assert body["subtitle"] is None
+    assert body["description"] is None
+    assert body["logo"] is None
 
     workspace = workspaces(session)[0]
     assert workspace.subtitle is None
@@ -112,7 +114,7 @@ def test_company_name_is_trimmed(client, session) -> None:
     response = client.post(ENDPOINT, json={"company_name": "  Context Core  "})
 
     assert response.status_code == 201
-    assert response.json()["company_name"] == "Context Core"
+    assert response_data(response)["company_name"] == "Context Core"
     assert workspaces(session)[0].company_name == "Context Core"
 
 
@@ -123,7 +125,7 @@ def test_a_relative_logo_path_is_stored_as_sent(client, session) -> None:
     )
 
     assert response.status_code == 201
-    assert response.json()["logo"] == "images/context-core.png"
+    assert response_data(response)["logo"] == "images/context-core.png"
     assert workspaces(session)[0].logo == "images/context-core.png"
 
 
@@ -150,7 +152,7 @@ def test_a_second_workspace_is_rejected(client, session) -> None:
 
     assert first.status_code == 201
     assert second.status_code == 409
-    assert second.json() == {"detail": "Workspace has already been created."}
+    assert response_error(second) == "Workspace has already been created."
     assert len(workspaces(session)) == 1
     assert session.commits == 1
 
@@ -174,6 +176,6 @@ def test_a_failed_creation_is_rolled_back(client, session, monkeypatch) -> None:
     response = client.post(ENDPOINT, json={"company_name": "Context Core"})
 
     assert response.status_code == 500
-    assert response.json() == {"detail": "The workspace could not be created."}
+    assert response_error(response) == "The workspace could not be created."
     assert session.commits == 0
     assert session.rollbacks == 1

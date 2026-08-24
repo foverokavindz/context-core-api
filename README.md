@@ -120,6 +120,26 @@ which is what makes them useful for debugging one connector.
 [docs/ingestion-endpoint.md](docs/ingestion-endpoint.md) has the request shape,
 the per-source `config` keys and what the run file holds.
 
+## API response contract
+
+Every application JSON endpoint returns the same outer envelope. Existing
+endpoint payloads are nested under `data`; their fields and HTTP status codes
+are unchanged.
+
+```json
+{
+  "success": true,
+  "data": { "status": "ok" },
+  "message": null,
+  "error": null,
+  "timestamp": "2026-08-24T12:58:18.893367Z"
+}
+```
+
+Framework errors, request-validation errors and application errors use the same
+shape with `success: false`, `data: null`, and a client-safe string in `error`.
+The `timestamp` is always an ISO 8601 UTC string.
+
 ## What it does not do — yet
 
 Deliberately absent, so the ingestion path stays small enough to understand and
