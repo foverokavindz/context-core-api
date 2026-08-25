@@ -1,6 +1,7 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.entities import ChatSession
 
@@ -28,3 +29,14 @@ class ChatSessionRepository:
         if chat_session is None or chat_session.user_id != user_id:
             return None
         return chat_session
+
+    def list_by_user_id(self, user_id: UUID) -> list[ChatSession]:
+        """List a user's sessions newest first, with messages eager-loaded."""
+
+        statement = (
+            select(ChatSession)
+            .where(ChatSession.user_id == user_id)
+            .options(selectinload(ChatSession.messages))
+            .order_by(ChatSession.created_at.desc())
+        )
+        return list(self.session.scalars(statement).all())

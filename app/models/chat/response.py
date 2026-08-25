@@ -1,7 +1,9 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.entities.chat.message_role import MessageRole
 from app.entities.data_sources.source_type import SourceType
 from app.entities.knowledge_sources.resource_type import ResourceType
 from app.models.retrieval.ontology.query_intent import QueryIntent
@@ -16,6 +18,24 @@ SNIPPET_CHARACTERS = 400
 class CreateChatResponse(BaseModel):
 
     chat_session_id: UUID
+
+
+class ChatHistoryMessageResponse(BaseModel):
+
+    message_id: UUID
+    role: MessageRole
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatHistorySessionResponse(BaseModel):
+
+    chat_session_id: UUID
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+    messages: list[ChatHistoryMessageResponse] = Field(default_factory=list)
 
 
 class AnswerSource(BaseModel):

@@ -1,4 +1,4 @@
-"""Tests for POST /api/v1/chats and POST /api/v1/chats/{id}/query.
+"""Tests for creating, reading, and querying chat sessions.
 
 The whole feature is one service over two repositories and the retrieval
 pipeline, so everything here runs over HTTP through the real app - real routing,
@@ -10,6 +10,7 @@ are stored. The last section drops to the objects themselves for the two rules
 HTTP cannot show: that a repository never commits, and that the service does.
 """
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,7 +22,7 @@ from app.entities import ChatSession, ChatSessionMessage, MessageRole, User
 from app.entities.data_sources.source_type import SourceType
 from app.entities.knowledge_sources.resource_type import ResourceType
 from app.main import app
-from app.tests.api_response_assertions import response_data
+from app.tests.api_response_assertions import response_data, response_error
 from app.models.chat.llm_config import DEFAULT_CHAT_MODEL
 from app.models.chat.request import MAX_QUERY_LENGTH, SendQueryRequest
 from app.models.chat.response import SNIPPET_CHARACTERS
@@ -46,6 +47,7 @@ USER_ID = "33333333-3333-3333-3333-333333333333"
 OTHER_USER_ID = "99999999-9999-9999-9999-999999999999"
 TEAM_ID = "11111111-1111-1111-1111-111111111111"
 DEPARTMENT_ID = "22222222-2222-2222-2222-222222222222"
+HISTORY = f"/api/v1/users/{USER_ID}/chats"
 
 QUERY = "How does authentication work in this application?"
 ANSWER = "Authentication is a JWT bearer token checked by AuthMiddleware [1]."
@@ -54,6 +56,15 @@ PLAN_GOAL = "Understand how authentication is implemented."
 
 
 # ------------------------------------------------------------------- fakes
+
+
+class FakeScalarResult:
+
+    def __init__(self, values: list) -> None:
+        self.values = values
+
+    def all(self) -> list:
+        return self.values
 
 
 class FakeSession:
@@ -70,6 +81,7 @@ class FakeSession:
         self.commits = 0
         self.rollbacks = 0
         self.flushes = 0
+        self.scalar_queries = 0
 
     def add(self, obj) -> None:
         self.added.append(obj)
@@ -97,6 +109,23 @@ class FakeSession:
                 if isinstance(obj, entity) and obj.id == ident
             ),
             None,
+        )
+
+    def scalars(self, statement) -> FakeScalarResult:
+        """Evaluate the one collection query used by the chat repository."""
+
+        self.scalar_queries += 1
+        parameters = statement.compile().params
+        user_id = next(
+            value for name, value in parameters.items() if "user_id" in name
+        )
+        chats = [
+            row
+            for row in self.added
+            if isinstance(row, ChatSession) and row.user_id == user_id
+        ]
+        return FakeScalarResult(
+            sorted(chats, key=lambda row: row.created_at, reverse=True)
         )
 
 
@@ -194,6 +223,22 @@ def chat_sessions(session: FakeSession) -> list[ChatSession]:
     return [row for row in session.added if isinstance(row, ChatSession)]
 
 
+def historical_message(
+    chat_session_id: UUID,
+    role: MessageRole,
+    content: str,
+    created_at: datetime,
+) -> ChatSessionMessage:
+    return ChatSessionMessage(
+        id=uuid4(),
+        chat_session_id=chat_session_id,
+        role=role,
+        content=content,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
 @pytest.fixture
 def session() -> FakeSession:
     """A session that already holds the user the requests name."""
@@ -281,6 +326,139 @@ def test_an_unknown_user_cannot_open_a_chat(client, session) -> None:
 )
 def test_a_malformed_create_body_is_rejected(client, body: dict) -> None:
     assert client.post(CHATS, json=body).status_code == 422
+
+
+# -------------------------------------------------------- get chat history
+
+
+def test_chat_history_groups_and_orders_a_users_complete_history(
+    client, session
+) -> None:
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    older_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(USER_ID),
+        title="Earlier investigation",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=2),
+    )
+    first_message = historical_message(
+        older_chat.id,
+        MessageRole.USER,
+        "What changed?",
+        older_chat.created_at + timedelta(minutes=1),
+    )
+    second_message = historical_message(
+        older_chat.id,
+        MessageRole.ASSISTANT,
+        "The authentication flow changed.",
+        older_chat.created_at + timedelta(minutes=2),
+    )
+    # Deliberately attach them newest-first; the endpoint must normalize order.
+    older_chat.messages = [second_message, first_message]
+
+    recent_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(USER_ID),
+        title=None,
+        created_at=now,
+        updated_at=now,
+    )
+    recent_chat.messages = []
+
+    someone_elses_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(OTHER_USER_ID),
+        title="Private",
+        created_at=now + timedelta(days=1),
+        updated_at=now + timedelta(days=1),
+    )
+    someone_elses_chat.messages = []
+    session.added.extend([older_chat, recent_chat, someone_elses_chat])
+
+    response = client.get(HISTORY)
+
+    assert response.status_code == 200
+    history = response_data(response)
+    assert [item["chat_session_id"] for item in history] == [
+        str(recent_chat.id),
+        str(older_chat.id),
+    ]
+    assert history[0] == {
+        "chat_session_id": str(recent_chat.id),
+        "title": None,
+        "created_at": now.isoformat().replace("+00:00", "Z"),
+        "updated_at": now.isoformat().replace("+00:00", "Z"),
+        "messages": [],
+    }
+    assert [item["message_id"] for item in history[1]["messages"]] == [
+        str(first_message.id),
+        str(second_message.id),
+    ]
+    assert history[1]["messages"][0] == {
+        "message_id": str(first_message.id),
+        "role": MessageRole.USER.value,
+        "content": "What changed?",
+        "created_at": first_message.created_at.isoformat().replace(
+            "+00:00", "Z"
+        ),
+        "updated_at": first_message.updated_at.isoformat().replace(
+            "+00:00", "Z"
+        ),
+    }
+    assert session.scalar_queries == 1
+    assert session.commits == 0
+
+
+def test_chat_history_is_not_limited_to_the_retrieval_context(
+    client, session
+) -> None:
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(USER_ID),
+        title="Long conversation",
+        created_at=now,
+        updated_at=now,
+    )
+    chat.messages = [
+        historical_message(
+            chat.id,
+            MessageRole.USER if index % 2 == 0 else MessageRole.ASSISTANT,
+            f"Message {index}",
+            now + timedelta(minutes=index),
+        )
+        for index in range(8)
+    ]
+    session.added.append(chat)
+
+    history = response_data(client.get(HISTORY))
+
+    assert [message["content"] for message in history[0]["messages"]] == [
+        f"Message {index}" for index in range(8)
+    ]
+
+
+def test_a_known_user_with_no_chat_history_gets_an_empty_list(client) -> None:
+    response = client.get(HISTORY)
+
+    assert response.status_code == 200
+    assert response_data(response) == []
+
+
+def test_an_unknown_users_chat_history_is_not_found(client, session) -> None:
+    response = client.get(f"/api/v1/users/{OTHER_USER_ID}/chats")
+
+    assert response.status_code == 404
+    assert response_error(response) == "User not found."
+    assert session.scalar_queries == 0
+    assert session.commits == 0
+
+
+def test_a_malformed_chat_history_user_id_is_rejected(client) -> None:
+    response = client.get("/api/v1/users/not-a-uuid/chats")
+
+    assert response.status_code == 422
 
 
 # ------------------------------------------------------------- send a query
