@@ -8,6 +8,7 @@ from app.main import app
 
 
 client = TestClient(app)
+FRONTEND_ORIGIN = "http://localhost:5174"
 
 
 def assert_envelope(body: dict) -> None:
@@ -75,3 +76,42 @@ def test_openapi_marks_every_envelope_field_as_required() -> None:
         "error",
         "timestamp",
     }
+
+
+def test_frontend_can_preflight_a_chat_request() -> None:
+    response = client.options(
+        "/api/v1/chats",
+        headers={
+            "Origin": FRONTEND_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == FRONTEND_ORIGIN
+    assert "POST" in response.headers["access-control-allow-methods"]
+    assert response.headers["access-control-allow-credentials"] == "true"
+    assert response.headers["access-control-allow-headers"] == (
+        "authorization,content-type"
+    )
+
+
+def test_frontend_origin_is_allowed_on_normal_responses() -> None:
+    response = client.get("/health", headers={"Origin": FRONTEND_ORIGIN})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == FRONTEND_ORIGIN
+
+
+def test_unknown_origins_are_not_allowed() -> None:
+    response = client.options(
+        "/api/v1/chats",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers

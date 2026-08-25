@@ -29,11 +29,13 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/contextcore
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_ALGORITHM=HS256
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+CORS_ALLOWED_ORIGINS=http://localhost:5174
 ```
 
 `JWT_SECRET` is required when calling the authentication endpoints. The
 algorithm and access-token lifetime are optional and use the values shown.
-Never commit the secret.
+`CORS_ALLOWED_ORIGINS` is an optional comma-separated list; local Vite origins
+on ports 5173 and 5174 are allowed by default. Never commit the secret.
 
 Then create the schema:
 
