@@ -40,3 +40,13 @@ class ChatSessionRepository:
             .order_by(ChatSession.created_at.desc())
         )
         return list(self.session.scalars(statement).all())
+
+    def list_summaries_by_user_id(self, user_id: UUID) -> list[ChatSession]:
+        """List a user's sessions newest first without loading messages."""
+
+        statement = (
+            select(ChatSession)
+            .where(ChatSession.user_id == user_id)
+            .order_by(ChatSession.created_at.desc())
+        )
+        return list(self.session.scalars(statement).all())

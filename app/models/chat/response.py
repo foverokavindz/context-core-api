@@ -20,6 +20,14 @@ class CreateChatResponse(BaseModel):
     chat_session_id: UUID
 
 
+class ConversationSummaryResponse(BaseModel):
+
+    chat_session_id: UUID
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ChatHistoryMessageResponse(BaseModel):
 
     message_id: UUID

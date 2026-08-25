@@ -48,6 +48,7 @@ OTHER_USER_ID = "99999999-9999-9999-9999-999999999999"
 TEAM_ID = "11111111-1111-1111-1111-111111111111"
 DEPARTMENT_ID = "22222222-2222-2222-2222-222222222222"
 HISTORY = f"/api/v1/users/{USER_ID}/chats"
+CONVERSATIONS = f"/api/v1/users/{USER_ID}/conversations"
 
 QUERY = "How does authentication work in this application?"
 ANSWER = "Authentication is a JWT bearer token checked by AuthMiddleware [1]."
@@ -457,6 +458,85 @@ def test_an_unknown_users_chat_history_is_not_found(client, session) -> None:
 
 def test_a_malformed_chat_history_user_id_is_rejected(client) -> None:
     response = client.get("/api/v1/users/not-a-uuid/chats")
+
+    assert response.status_code == 422
+
+
+# ------------------------------------------------------ list conversations
+
+
+def test_conversation_list_returns_only_the_users_sessions_newest_first(
+    client, session
+) -> None:
+    now = datetime(2026, 8, 25, 12, 0, tzinfo=timezone.utc)
+    older_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(USER_ID),
+        title="Earlier investigation",
+        created_at=now - timedelta(days=1),
+        updated_at=now - timedelta(hours=12),
+    )
+    recent_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(USER_ID),
+        title=None,
+        created_at=now,
+        updated_at=now,
+    )
+    someone_elses_chat = ChatSession(
+        id=uuid4(),
+        user_id=UUID(OTHER_USER_ID),
+        title="Private",
+        created_at=now + timedelta(days=1),
+        updated_at=now + timedelta(days=1),
+    )
+    session.added.extend([older_chat, recent_chat, someone_elses_chat])
+
+    response = client.get(CONVERSATIONS)
+
+    assert response.status_code == 200
+    assert response_data(response) == [
+        {
+            "chat_session_id": str(recent_chat.id),
+            "title": None,
+            "created_at": now.isoformat().replace("+00:00", "Z"),
+            "updated_at": now.isoformat().replace("+00:00", "Z"),
+        },
+        {
+            "chat_session_id": str(older_chat.id),
+            "title": "Earlier investigation",
+            "created_at": older_chat.created_at.isoformat().replace(
+                "+00:00", "Z"
+            ),
+            "updated_at": older_chat.updated_at.isoformat().replace(
+                "+00:00", "Z"
+            ),
+        },
+    ]
+    assert session.scalar_queries == 1
+    assert session.commits == 0
+
+
+def test_a_known_user_with_no_conversations_gets_an_empty_list(client) -> None:
+    response = client.get(CONVERSATIONS)
+
+    assert response.status_code == 200
+    assert response_data(response) == []
+
+
+def test_an_unknown_users_conversation_list_is_not_found(
+    client, session
+) -> None:
+    response = client.get(f"/api/v1/users/{OTHER_USER_ID}/conversations")
+
+    assert response.status_code == 404
+    assert response_error(response) == "User not found."
+    assert session.scalar_queries == 0
+    assert session.commits == 0
+
+
+def test_a_malformed_conversation_list_user_id_is_rejected(client) -> None:
+    response = client.get("/api/v1/users/not-a-uuid/conversations")
 
     assert response.status_code == 422
 

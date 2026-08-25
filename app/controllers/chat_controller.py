@@ -8,6 +8,7 @@ from app.core.db.dependencies import get_db
 from app.models.chat.request import CreateChatRequest, SendQueryRequest
 from app.models.chat.response import (
     ChatHistorySessionResponse,
+    ConversationSummaryResponse,
     CreateChatResponse,
     SendQueryResponse,
 )
@@ -52,6 +53,24 @@ def get_chat_history(
 ) -> ApiResponse[list[ChatHistorySessionResponse]]:
     history = ChatService(session).get_chat_history(user_id)
     return ApiResponse[list[ChatHistorySessionResponse]].ok(history)
+
+
+@router.get(
+    "/users/{user_id}/conversations",
+    status_code=200,
+    response_model=ApiResponse[list[ConversationSummaryResponse]],
+    summary="List a user's conversations",
+    response_description=(
+        "Every chat session belonging to the user, newest first, without "
+        "loading or returning the messages inside each conversation."
+    ),
+)
+def list_conversations(
+    user_id: UUID,
+    session: Session = Depends(get_db),
+) -> ApiResponse[list[ConversationSummaryResponse]]:
+    conversations = ChatService(session).list_conversations(user_id)
+    return ApiResponse[list[ConversationSummaryResponse]].ok(conversations)
 
 
 @router.post(
