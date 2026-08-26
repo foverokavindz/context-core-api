@@ -1,0 +1,27 @@
+from enum import Enum
+
+
+class QueryIntent(str, Enum):
+
+    # Find a specific known thing
+    DIRECT_LOOKUP = "DIRECT_LOOKUP"
+
+    # Understand existing system knowledge
+    REQUIREMENT_UNDERSTANDING = "REQUIREMENT_UNDERSTANDING"
+    IMPLEMENTATION_UNDERSTANDING = "IMPLEMENTATION_UNDERSTANDING"
+    ARCHITECTURE_UNDERSTANDING = "ARCHITECTURE_UNDERSTANDING"
+
+    # Historical understanding
+    DECISION_HISTORY = "DECISION_HISTORY"
+    CHANGE_HISTORY = "CHANGE_HISTORY"
+
+    # Engineering analysis
+    IMPACT_ANALYSIS = "IMPACT_ANALYSIS"
+    TROUBLESHOOTING = "TROUBLESHOOTING"
+    CHANGE_PLANNING = "CHANGE_PLANNING"
+
+    # Multi-purpose request
+    BROAD_CONTEXT = "BROAD_CONTEXT"
+
+    # Fallback
+    GENERAL_QUESTION = "GENERAL_QUESTION"

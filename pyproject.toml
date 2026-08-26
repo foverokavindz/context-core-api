@@ -23,6 +23,8 @@ dependencies = [
     "pgvector",
     "openai",
     "python-dotenv",
+    "langchain-core",
+    "langchain-openai",
 ]
 
 [project.optional-dependencies]
@@ -52,13 +54,23 @@ packages = [
     "app.ingestion",
     "app.ingestion.parser",
     "app.models",
+    "app.models.chat",
     "app.models.common",
     "app.models.confluence",
     "app.models.github",
     "app.models.ingestion",
     "app.models.jira",
+    "app.models.retrieval",
+    "app.models.retrieval.ontology",
     "app.models.slack",
     "app.repository",
+    "app.retrieval",
+    "app.retrieval.answering",
+    "app.retrieval.execution",
+    "app.retrieval.planning",
+    "app.retrieval.prompt_processing",
+    "app.retrieval.retrievers",
+    "app.retrieval.search",
     "app.services",
 ]
 
