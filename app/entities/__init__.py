@@ -24,6 +24,7 @@ from app.entities.documents import Document, DocumentStatus
 from app.entities.knowledge_sources import Resource, ResourceAccessScope, ResourceType
 from app.entities.organization import ApplicationRole, Department, JobTitle, User
 from app.entities.teams import MemberRole, Team, TeamMember
+from app.entities.workspace import Workspace
 
 __all__ = [
     "ApplicationRole",
@@ -50,4 +51,5 @@ __all__ = [
     "Team",
     "TeamMember",
     "User",
+    "Workspace",
 ]

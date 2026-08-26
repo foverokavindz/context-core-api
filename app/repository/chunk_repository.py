@@ -1,6 +1,7 @@
-"""Turns the four sources' chunk models into `chunks` rows, and searches them."""
+from collections.abc import Sequence
+from uuid import UUID
 
-from sqlalchemy import Select, and_, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session, defer
 
 from app.entities.chunks.chunk import Chunk
@@ -75,6 +76,43 @@ class ChunkRepository:
             _search_statement(embedding, source, access, top_k)
         ).all()
         return [_to_result(row, source) for row in rows]
+
+    def count_by_source_ids(self, source_ids: Sequence[UUID]) -> dict[UUID, int]:
+        """How many chunks each of these sources produced, in one query."""
+        if not source_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(Chunk.external_data_source_id, func.count(Chunk.id))
+            .where(Chunk.external_data_source_id.in_(source_ids))
+            .group_by(Chunk.external_data_source_id)
+        ).all()
+        return {source_id: count for source_id, count in rows}
+
+    def count_by_external_ids(
+        self, source_id: UUID, external_ids: Sequence[str]
+    ) -> dict[str, int]:
+        """How many chunks each of these resources was split into.
+
+        A chunk carries no `resource_id`: it belongs to the resource sharing its
+        `(external_data_source_id, external_id)` pair, which is the same join
+        `_search_statement` below makes. Counting groups on that second column,
+        with the source fixed - `external_id` only means something inside its
+        source, so two repositories each holding a README.md would otherwise be
+        counted as one.
+        """
+        if not external_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(Chunk.external_id, func.count(Chunk.id))
+            .where(
+                Chunk.external_data_source_id == source_id,
+                Chunk.external_id.in_(external_ids),
+            )
+            .group_by(Chunk.external_id)
+        ).all()
+        return {external_id: count for external_id, count in rows}
 
 
 def _search_statement(

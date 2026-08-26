@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.entities.data_sources.external_data_source import ExternalDataSource
@@ -40,3 +41,15 @@ class ExternalDataSourceRepository:
         source = self.session.get(ExternalDataSource, source_id)
         if source is not None:
             source.last_synced_at = synced_at
+
+    def get_by_id(self, source_id: UUID) -> ExternalDataSource | None:
+        return self.session.get(ExternalDataSource, source_id)
+
+    def list_by_team(self, team_id: UUID) -> list[ExternalDataSource]:
+        """Every source this team has connected, newest first."""
+        statement = (
+            select(ExternalDataSource)
+            .where(ExternalDataSource.team_id == team_id)
+            .order_by(ExternalDataSource.created_at.desc(), ExternalDataSource.id)
+        )  
+        return list(self.session.scalars(statement).all())

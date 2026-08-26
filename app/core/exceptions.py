@@ -1,29 +1,74 @@
-"""Errors that the ingestion pipeline raises, and the HTTP status each maps to.
+class WorkspaceAlreadyExistsError(Exception):
+    default_message = "Workspace has already been created."
 
-Every message here is written to be safe to hand straight to an API client. The
-upstream API's own error text - GitHub's or Jira's - is deliberately NOT folded
-into these messages; it is logged server-side instead. That keeps two things out
-of responses: internal detail, and any chance of echoing back credentials.
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
 
-The GitHub errors come first, then the Jira ones, then the Confluence ones, then
-the Slack ones, then the embedding ones, then the chat-model ones, and the
-database one last. They are
-kept as separate classes
-rather than shared because the wording a client sees should name the system that
-actually failed, and because the vendors do not agree on what a given status
-means - GitHub's 403 is ambiguous, Jira's is not.
 
-Jira and Confluence are both Atlassian, and their statuses do line up. They still
-get their own classes: a run ingests one or the other, never both, so a message
-naming the wrong product would be actively misleading.
+class OrganizationError(Exception):
+    status_code: int = 500
+    default_message: str = "Organization request failed."
 
-The Slack family is the odd one out, and not because of its wording. The other
-three vendors report failure with an HTTP status; Slack answers `200 OK` with
-`{"ok": false, "error": "invalid_auth"}` in the body. So a Slack error is chosen
-by matching that error *string*, not by reading a status code. The classes look
-the same from the outside, which is the point - what varies is how the connector
-arrives at one.
-"""
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
+class DepartmentNotFoundError(OrganizationError):
+    status_code = 404
+    default_message = "Department not found."
+
+
+class TeamNotFoundError(OrganizationError):
+    status_code = 404
+    default_message = "Team not found."
+
+
+class TeamDepartmentMismatchError(OrganizationError):
+    status_code = 400
+    default_message = "department_id does not match the selected team."
+
+
+class DepartmentAlreadyExistsError(OrganizationError):
+    status_code = 409
+    default_message = "Department already exists."
+
+
+class TeamAlreadyExistsError(OrganizationError):
+    status_code = 409
+    default_message = "Team already exists in this department."
+
+
+class EmployeeAlreadyExistsError(OrganizationError):
+    status_code = 409
+    default_message = "An employee with this email already exists."
+
+
+class ApplicationAuthError(Exception):
+    status_code: int = 500
+    default_message: str = "Authentication failed."
+
+    def __init__(self, message: str | None = None) -> None:
+        self.message = message or self.default_message
+        super().__init__(self.message)
+
+
+class InvalidCredentialsError(ApplicationAuthError):
+    status_code = 401
+    default_message = "Invalid email or password."
+
+
+class InvalidAccessTokenError(ApplicationAuthError):
+    status_code = 401
+    default_message = "Invalid or missing access token."
+
+
+class JWTConfigurationError(ApplicationAuthError):
+    status_code = 500
+    default_message = (
+        "JWT authentication is not configured correctly on this server."
+    )
 
 
 class IngestionError(Exception):

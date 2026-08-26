@@ -22,15 +22,13 @@ from app.models.confluence.response import (
     ConfluenceIngestResponse,
     ConfluencePageError,
 )
+from app.models.common.api_response import ApiResponse
 from app.models.common.embedding_counts import EmbeddingCounts
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/confluence", tags=["confluence"])
 
-# The embedder reads no environment variable and opens no connection until the
-# first batch is sent, so building one here costs nothing and importing this
-# module on a machine with no credentials still works.
 _service = ConfluenceIngestionService(embedder=ChunkEmbedder())
 
 
@@ -45,7 +43,7 @@ def get_confluence_ingestion_service() -> ConfluenceIngestionService:
 
 @router.post(
     "/ingest",
-    response_model=ConfluenceIngestResponse,
+    response_model=ApiResponse[ConfluenceIngestResponse],
     summary="Ingest a Confluence space's pages into chunks",
     response_description=(
         "Counts for each pipeline stage, the normalised pages, and a sample of "
@@ -55,7 +53,7 @@ def get_confluence_ingestion_service() -> ConfluenceIngestionService:
 def ingest_space(
     request: ConfluenceIngestRequest,
     service: ConfluenceIngestionService = Depends(get_confluence_ingestion_service),
-) -> ConfluenceIngestResponse:
+) -> ApiResponse[ConfluenceIngestResponse]:
     """Fetch, normalise and chunk one Confluence space.
 
     The response is a verification aid: it reports the full counts but only a
@@ -70,7 +68,9 @@ def ingest_space(
         max_pages=request.max_pages,
         embed=request.embed,
     )
-    return to_response(result, full=request.full)
+    return ApiResponse[ConfluenceIngestResponse].ok(
+        to_response(result, full=request.full)
+    )
 
 
 def to_response(

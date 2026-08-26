@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db.dependencies import get_db
 from app.entities.data_sources.source_type import SourceType
+from app.models.common.api_response import ApiResponse
 from app.models.ingestion.request import REQUIRED_CONFIG_KEYS, IngestDataRequest
 from app.models.ingestion.response import IngestStartedResponse
 from app.services.ingestion_service import start_ingestion
@@ -14,10 +15,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["ingestion"])
 
 
-@router.post( 
+@router.post(
     "/ingestData/{external_source}",
     status_code=202,
-    response_model=IngestStartedResponse,
+    response_model=ApiResponse[IngestStartedResponse],
     summary="Connect an external source and start ingesting from it",
     response_description=(
         "The external data source that was created, and confirmation that its "
@@ -29,12 +30,13 @@ def ingest_data(
     request: IngestDataRequest,
     background: BackgroundTasks,
     session: Session = Depends(get_db),
-) -> IngestStartedResponse:
+) -> ApiResponse[IngestStartedResponse]:
     """Accept an ingestion request and start its pipeline in the background."""
 
     source_type = _resolve_source_type(external_source)
     _validate_config(source_type, request)
-    return start_ingestion(request, source_type, background, session)
+    result = start_ingestion(request, source_type, background, session)
+    return ApiResponse[IngestStartedResponse].ok(result)
 
 
 def _resolve_source_type(external_source: str) -> SourceType:

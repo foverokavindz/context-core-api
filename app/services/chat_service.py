@@ -11,6 +11,9 @@ from app.models.chat.request import CreateChatRequest, SendQueryRequest
 from app.models.chat.response import (
     SNIPPET_CHARACTERS,
     AnswerSource,
+    ChatHistoryMessageResponse,
+    ChatHistorySessionResponse,
+    ConversationSummaryResponse,
     CreateChatResponse,
     RetrievalStepTrace,
     RetrievalTrace,
@@ -63,6 +66,57 @@ class ChatService:
             "Chat session %s opened for user %s", chat_session.id, request.user_id
         )
         return CreateChatResponse(chat_session_id=chat_session.id)
+
+    def get_chat_history(
+        self, user_id: UUID
+    ) -> list[ChatHistorySessionResponse]:
+        """Return every conversation and message belonging to a user."""
+
+        if self.users.get_by_id(user_id) is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        return [
+            ChatHistorySessionResponse(
+                chat_session_id=chat_session.id,
+                title=chat_session.title,
+                created_at=chat_session.created_at,
+                updated_at=chat_session.updated_at,
+                messages=[
+                    ChatHistoryMessageResponse(
+                        message_id=message.id,
+                        role=message.role,
+                        content=message.content,
+                        created_at=message.created_at,
+                        updated_at=message.updated_at,
+                    )
+                    for message in sorted(
+                        chat_session.messages,
+                        key=lambda item: item.created_at,
+                    )
+                ],
+            )
+            for chat_session in self.chat_sessions.list_by_user_id(user_id)
+        ]
+
+    def list_conversations(
+        self, user_id: UUID
+    ) -> list[ConversationSummaryResponse]:
+        """Return the conversation index for a user without message bodies."""
+
+        if self.users.get_by_id(user_id) is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        return [
+            ConversationSummaryResponse(
+                chat_session_id=chat_session.id,
+                title=chat_session.title,
+                created_at=chat_session.created_at,
+                updated_at=chat_session.updated_at,
+            )
+            for chat_session in self.chat_sessions.list_summaries_by_user_id(
+                user_id
+            )
+        ]
 
     def send_query(
         self, chat_session_id: UUID, request: SendQueryRequest

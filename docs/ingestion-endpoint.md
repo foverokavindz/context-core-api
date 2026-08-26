@@ -234,7 +234,8 @@ run without a query. It goes away once the tables have been trusted for a while.
 | `422` | The body is unusable — a malformed UUID, a blank title, an unknown field. |
 
 The foreign-key `400` is the one that only exists now that the row is written.
-There is no authentication, so those three ids are taken from the body on trust;
+This endpoint is not authenticated yet, so those three ids are taken from the
+body on trust;
 the insert is the first thing that checks them, and a caller who invented one
 gets a `400` rather than a `500`.
 
