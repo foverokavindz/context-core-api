@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .env
+.env.prod
 *.egg-info/
 .pytest_cache/
 app/data/runs/

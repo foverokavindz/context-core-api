@@ -1,11 +1,3 @@
-"""FastAPI application: creates the app, wires up routers, exposes /health.
-
-Logging note: every log statement in this application is written to be safe to
-ship. Tokens are held as pydantic SecretStr values, which render as `**********`
-wherever they are formatted, and no code path logs a request body or an
-Authorization header.
-"""
-
 import logging
 import os
 
@@ -22,6 +14,7 @@ from app.api.jira_routes import router as jira_router
 from app.api.slack_routes import router as slack_router
 from app.controllers.chat_controller import router as chat_router
 from app.controllers.auth_controller import router as auth_router
+from app.controllers.data_source_controller import router as data_source_router
 from app.controllers.department_controller import router as department_router
 from app.controllers.employee_controller import router as employee_router
 from app.controllers.ingestion_controller import router as ingestion_router
@@ -95,6 +88,7 @@ app.add_middleware(
 # app.include_router(slack_router)
 
 app.include_router(ingestion_router)
+app.include_router(data_source_router)
 app.include_router(chat_router)
 app.include_router(workspace_router)
 app.include_router(department_router)

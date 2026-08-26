@@ -59,6 +59,7 @@ packages = [
     "app.models.chat",
     "app.models.common",
     "app.models.confluence",
+    "app.models.data_sources",
     "app.models.github",
     "app.models.ingestion",
     "app.models.jira",

@@ -1,7 +1,10 @@
 """Turns the four sources' item models into `resources` rows."""
 
 import logging
+from collections.abc import Sequence
+from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.entities.knowledge_sources.resource import Resource
@@ -15,7 +18,6 @@ logger = logging.getLogger(__name__)
 #TODO : inherit from a base class for the four sources, so this can be a single type
 ResourceItem = RepositoryFile | JiraIssue | ConfluencePage | SlackMessage
 
-# The fields that become real columns, so they must not be duplicated into the metadata. 
 _NOT_METADATA = frozenset(
     {
         "external_data_source_id",
@@ -73,3 +75,28 @@ class ResourceRepository:
         self.session.add_all(resources)
         self.session.flush()
         return resources
+
+    def list_by_source(self, source_id: UUID, limit: int) -> list[Resource]:
+        """What this source has produced, most recently touched first."""
+        statement = (
+            select(Resource)
+            .where(Resource.external_data_source_id == source_id)
+            .order_by(Resource.updated_at.desc(), Resource.id)
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement).all())
+
+    def count_by_source_ids(self, source_ids: Sequence[UUID]) -> dict[UUID, int]:
+        """How many resources each of these sources produced, in one query."""
+        if not source_ids:
+            return {}
+
+        rows = self.session.execute(
+            select(
+                Resource.external_data_source_id,
+                func.count(Resource.id),
+            )
+            .where(Resource.external_data_source_id.in_(source_ids))
+            .group_by(Resource.external_data_source_id)
+        ).all()
+        return {source_id: count for source_id, count in rows}

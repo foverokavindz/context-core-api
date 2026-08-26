@@ -1,7 +1,9 @@
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, aliased
 
 from app.entities.data_sources.sync_run import SyncRun
 from app.entities.data_sources.sync_run_status import SyncRunStatus
@@ -55,3 +57,42 @@ class SyncRunRepository:
 
         self.session.flush()
         return run
+
+    def get_by_id(self, sync_run_id: UUID) -> SyncRun | None:
+        return self.session.get(SyncRun, sync_run_id)
+
+    def list_by_source(self, source_id: UUID, limit: int) -> list[SyncRun]:
+        """This source's runs, newest first."""
+        statement = (
+            select(SyncRun)
+            .where(SyncRun.external_data_source_id == source_id)
+            .order_by(SyncRun.created_at.desc(), SyncRun.id.desc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(statement).all())
+
+    def latest_by_source_ids(
+        self, source_ids: Sequence[UUID]
+    ) -> dict[UUID, SyncRun]:
+        if not source_ids:
+            return {} 
+
+        ranked = (
+            select(
+                SyncRun,
+                func.row_number()
+                .over(
+                    partition_by=SyncRun.external_data_source_id,
+                    order_by=(SyncRun.created_at.desc(), SyncRun.id.desc()),
+                )
+                .label("recency"),
+            )
+            .where(SyncRun.external_data_source_id.in_(source_ids))
+            .subquery()
+        )
+
+        latest = aliased(SyncRun, ranked)
+        runs = self.session.scalars(
+            select(latest).where(ranked.c.recency == 1)
+        ).all()
+        return {run.external_data_source_id: run for run in runs}
