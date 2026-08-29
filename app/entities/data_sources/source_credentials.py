@@ -33,16 +33,13 @@ class SourceCredentials(UUIDMixin, TimestampMixin, Base):
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
-    ) # which provider this authenticates against, and a branch in whatever code eventually uses it - Basic with an email for Jira and Confluence, a bearer token for GitHub, an xoxb header for Slack
+    ) 
+    secret_reference: Mapped[str | None] = mapped_column(String(512), nullable=True) 
 
-    secret_reference: Mapped[str | None] = mapped_column(String(512), nullable=True) # a pointer into a future secret manager, never the secret itself
-
-    encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True) # ciphertext only - there is no plain-token column here and there will never be one
-
+    encrypted_secret: Mapped[str | None] = mapped_column(Text, nullable=True) 
     credential_metadata: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=True,
-    ) # non-secret context such as auth_type or account_email, so a row can be identified without decrypting anything
-
+    ) 
     team: Mapped["Team"] = relationship(back_populates="source_credentials")
     external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="credential")

@@ -23,8 +23,7 @@ class SyncRun(UUIDMixin, TimestampMixin, Base):
         ForeignKey("external_data_sources.id"),
         nullable=False,
         index=True,
-    ) # the only foreign key here - the team is reached through the source, so it is not duplicated onto the run
-
+    ) 
     status: Mapped[SyncRunStatus] = mapped_column(
         SAEnum(
             SyncRunStatus,
@@ -46,8 +45,7 @@ class SyncRun(UUIDMixin, TimestampMixin, Base):
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
-    ) # both nullable, since a PENDING run has neither and a FAILED one may have only the first
-
+    ) 
     resources_processed: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -81,6 +79,5 @@ class SyncRun(UUIDMixin, TimestampMixin, Base):
     run_metadata: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=True,
-    ) # named run_metadata rather than metadata, which a declarative class already uses for Base.metadata
-
+    ) 
     external_data_source: Mapped["ExternalDataSource"] = relationship(back_populates="sync_runs")

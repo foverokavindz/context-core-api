@@ -1,4 +1,3 @@
-"""External data source entities. Importing this package registers all three mappers."""
 
 from app.entities.data_sources.credential_type import CredentialType
 from app.entities.data_sources.external_data_source import ExternalDataSource

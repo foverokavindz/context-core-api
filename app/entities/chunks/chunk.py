@@ -35,35 +35,27 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
     external_data_source_id: Mapped[UUID | None] = mapped_column(
         Uuid,
         nullable=True,
-    ) # no index of its own - the unique constraint below leads with this column and already builds that btree. Not a ForeignKey() on its own line: it is half of the composite key below, and declaring it singly as well would emit a second, redundant constraint
-
+    ) 
     external_id: Mapped[str | None] = mapped_column(
         String(512),
         nullable=True,
-    ) # 512 for the same reason resources.external_id is: a file path is the long case. No index of its own either - unlike resources.external_id, which is the *last* column of its constraint and so needs one, this is the second of three, and "every chunk of this resource" is a prefix match on (external_data_source_id, external_id) that the constraint's btree already answers. Looking a chunk up by external_id without knowing its source is not a query anything makes
-
-    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False) # the chunk's position within its resource, so a retrieved chunk can be put back in order
-
+    ) 
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False) 
     chunk_type: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         index=True,
-    ) # an upper-cased string the ingestion layer writes, deliberately not an enum: it is symbol_type for GitHub, issue_type for Jira, PAGE for Confluence and MESSAGE for Slack, and both of the first two are open sets - a parser learns a new symbol kind and a Jira project defines whatever issue types it likes, neither of which should cost an ALTER TYPE. 255 to match embedding_model below; Jira caps an issue type's name well under that. Still nullable, because a chunker that only splits text has nothing meaningful to put here and a wrong value would be worse than none
-
-    content: Mapped[str] = mapped_column(Text, nullable=False) # the text that gets embedded, kept beside its vector so retrieval reads one row
-
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False) 
     embedding: Mapped[list[float] | None] = mapped_column(
         VECTOR(1536),
         nullable=True,
-    ) # a real vector(1536) on PostgreSQL and JSON elsewhere, the same trade config and the metadata columns make. Nullable: a chunk exists from the moment it is written and is embedded after
-  
-    embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True) # which model produced the vector, so a model change can be found rather than guessed at
-
+    ) 
+    embedding_model: Mapped[str | None] = mapped_column(String(255), nullable=True) 
     chunk_metadata: Mapped[dict | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=True,
-    ) # what the chunk models carry beyond the columns above: symbol_name and start_line for code, and the item's own fields - repository and branch, space_key, project_key. A deliberate second copy of what the resource row already holds, so a retrieval hit is self-describing without a join back to resources. The resource stays the source of truth; nothing keeps this copy in step, see docs/todo.md
-
+    ) 
     access_scope: Mapped[ResourceAccessScope] = mapped_column(
         SAEnum(
             ResourceAccessScope,
@@ -87,8 +79,7 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
         ForeignKey("departments.id"),
         nullable=True,
         index=True,
-    ) # these three are copies of the resource's, denormalized so a vector search can filter chunk rows before it ranks them rather than joining resources first. The resource stays the source of truth, and nothing here keeps the copy in step - the ingestion service does, see docs/todo.md
-
+    ) 
     __table_args__ = (
         ForeignKeyConstraint(
             ["external_data_source_id", "external_id"],
@@ -96,10 +87,8 @@ class Chunk(UUIDMixin, TimestampMixin, Base):
             name="fk_chunks_resource",
         ),
         UniqueConstraint("external_data_source_id", "external_id", "chunk_index"),
-    ) # the first replaces what resource_id used to do with one column: a chunk belongs to the resource sharing its (source, external_id) pair, which is exactly what resources declares unique. The second scopes chunk_index to that same pair rather than to external_id alone - external_id only means something inside its source, so two repositories each holding a README.md would otherwise collide at every index. Neither constraint reaches a document-origin chunk, whose columns are both NULL; see docs/todo.md
-
-    resource: Mapped["Resource | None"] = relationship(back_populates="chunks") # optional, unlike the old resource_id which was NOT NULL: the columns this joins on are nullable, so a document-origin chunk resolves to None here rather than to a row
-
+    ) 
+    resource: Mapped["Resource | None"] = relationship(back_populates="chunks") 
     team: Mapped["Team | None"] = relationship(back_populates="chunks")
     department: Mapped["Department | None"] = relationship(back_populates="chunks")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk") # every time this chunk was cited in an answer, which is a record of what retrieval actually found useful and not something the chunk needs to know to be embedded
+    citations: Mapped[list["Citation"]] = relationship(back_populates="chunk") 
