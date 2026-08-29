@@ -27,16 +27,12 @@ class SyncRunResponse(BaseModel):
     chunks_created: int
     chunks_updated: int
     chunks_deleted: int
-    error_message: str | None  # already the client-safe text; the upstream API's own error body stays in the server log
+    error_message: str | None  
     created_at: datetime
 
 
 class DataSourceSummaryResponse(BaseModel):
     """A connected source as a row in a list.
-
-    `latest_run` is folded in because the two are read together every time - a
-    source without its last run cannot say whether it is syncing, healthy or
-    broken, and fetching it per row is the N+1 this avoids.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -58,7 +54,7 @@ class DataSourceDetailResponse(DataSourceSummaryResponse):
 
     team_id: UUID
     created_by_user_id: UUID
-    has_token: bool  # whether a credential is stored, which is all a form may know about it
+    has_token: bool 
 
 
 class IndexedResourceResponse(BaseModel):
@@ -81,8 +77,8 @@ class DataSourceStatsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     total_sources: int
-    connected_sources: int  # ACTIVE, and has completed at least one run
-    healthy_syncs: int  # whose most recent run COMPLETED
-    pending_setup: int  # never run, or whose most recent run FAILED
+    connected_sources: int 
+    healthy_syncs: int 
+    pending_setup: int  
     indexed_items: int
     total_chunks: int

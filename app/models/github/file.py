@@ -24,8 +24,6 @@ class RepositoryFile(PermissionScope):
     file_name: str
     extension: str | None
 
-    # What GitHub told us about it. Both optional: another source may not have
-    # a content hash or may not report a size.
     file_sha: str | None = None
     size: int | None = None
 
@@ -33,7 +31,7 @@ class RepositoryFile(PermissionScope):
 
     content: str
 
-    external_id: str # = file_path. A path means something only inside its repository, which is why resources scopes uniqueness to (source, external_id)
-    title: str | None = None # = file_name. The path is what identifies the file; the bare name is what a person reads
-    version_key: str | None = None # = file_sha, the blob SHA GitHub changes whenever the file's bytes do
+    external_id: str 
+    title: str | None = None 
+    version_key: str | None = None 
     resource_type: ResourceType = ResourceType.GITHUB_FILE

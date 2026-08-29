@@ -14,6 +14,6 @@ class ConfluencePage(PermissionScope):
     version_number: int | None = None
     content: str
 
-    external_id: str # = page_id
-    version_key: str | None = None # = str(version_number). Confluence increments it on every edit, which is what version_key is for
+    external_id: str 
+    version_key: str | None = None 
     resource_type: ResourceType = ResourceType.CONFLUENCE_PAGE

@@ -8,8 +8,6 @@ from app.models.chat.llm_config import LLMConfig
 MAX_QUERY_LENGTH = 4_000
 MAX_TITLE_LENGTH = 255 
 
-# Both strip before they measure, so a value of nothing but whitespace is
-# rejected rather than stored as an empty string.
 ChatTitle = Annotated[
     str,
     StringConstraints(

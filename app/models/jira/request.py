@@ -2,25 +2,10 @@
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-# A Jira Cloud site root, and nothing more. Anchored so a full issue URL, a path
-# with extra segments or a bare hostname is rejected up front rather than
-# becoming a confusing 404 three API calls later.
-#
-# https only, deliberately: the API token travels in an HTTP Basic header on
-# every request, and plaintext must never be an option. The domain is not
-# hard-coded to atlassian.net so a custom Cloud domain still works. A trailing
-# slash is accepted here and stripped by the validator below - a pattern can
-# reject a value but cannot normalise one.
 SITE_URL_PATTERN = r"^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]\.[A-Za-z]{2,}/?$"
 
-# Jira Cloud project keys: 2-10 characters, uppercase, starting with a letter.
-# This is also what makes JQL interpolation safe - the pattern leaves no
-# character available to escape a quoted string - so keep the class narrow.
 PROJECT_KEY_PATTERN = r"^[A-Z][A-Z0-9]{1,9}$"
 
-# A shape check, not a deliverability check. Pydantic's EmailStr would need the
-# email-validator package as a new runtime dependency for no real gain: Jira is
-# the only thing that can say whether this address owns the token.
 EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 

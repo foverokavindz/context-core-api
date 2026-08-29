@@ -32,7 +32,7 @@ class IngestResponse(BaseModel):
 
     counts: EmbeddingCounts
 
-    resource_files: list[RepositoryFile] = [] # the connector's own model, returned as it stands. One definition of a GitHub file per run, so a field added to it cannot go missing here
+    resource_files: list[RepositoryFile] = [] 
 
     chunks: list[CodeChunk] = []
     errors: list[FileError] = []

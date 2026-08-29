@@ -19,8 +19,8 @@ class JiraChunk(PermissionScope):
 
     content: str
 
-    external_id: str # = key, the same value the issue carries
-    chunk_index: int = 0 # one issue makes one chunk, so this is always the first
+    external_id: str 
+    chunk_index: int = 0 
 
     embedding: list[float] | None = None
     embedding_model: str | None = None
@@ -29,10 +29,5 @@ class JiraChunk(PermissionScope):
     @property
     def chunk_type(self) -> str:
         """What `chunks.chunk_type` gets: this issue's issue_type, upper-cased.
-
-        A Jira project defines its own issue types, so this is STORY and EPIC on
-        most boards and BUG, SUB-TASK or anything else on others - which is the
-        reason the column is a string. UNKNOWN when the issue arrived without one;
-        see UNKNOWN_ISSUE_TYPE in jira_parser.
         """
         return self.issue_type.upper()

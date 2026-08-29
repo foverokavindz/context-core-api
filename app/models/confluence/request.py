@@ -2,25 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
-# A Confluence Cloud site root, and nothing more. The same pattern the Jira
-# request uses, and for the same reasons: anchored so a page URL or a bare
-# hostname is rejected up front, https only because the API token travels in an
-# HTTP Basic header, and not hard-coded to atlassian.net so a custom Cloud
-# domain still works. A trailing slash is accepted here and stripped below.
-#
-# Note this is the site root, not the /wiki path. The connector adds /wiki
-# itself, so a caller never has to know that Confluence lives under one.
 SITE_URL_PATTERN = r"^https://[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]\.[A-Za-z]{2,}/?$"
 
-# Confluence space keys are nothing like Jira project keys, so this pattern is
-# deliberately NOT PROJECT_KEY_PATTERN. Real keys on a real site include "TR",
-# a single-character "F", and personal spaces keyed "~<account id>" - all of
-# which [A-Z][A-Z0-9]{1,9} would reject.
-#
-# Being wider costs nothing here. The key is sent as a URL query parameter,
-# which httpx percent-encodes, so unlike Jira's JQL interpolation there is no
-# string for it to escape out of. The class still excludes "/", "?", "#",
-# quotes and whitespace, so it cannot reshape the request path either.
 SPACE_KEY_PATTERN = r"^[A-Za-z0-9~._-]{1,255}$"
 
 # A shape check, not a deliverability check - see JiraIngestRequest.

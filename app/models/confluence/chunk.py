@@ -17,8 +17,8 @@ class ConfluenceChunk(PermissionScope):
 
     content: str
 
-    external_id: str # = page_id, the same value the page carries
-    chunk_index: int = 0 # one page makes one chunk today; a chunker that splits a long page would number them here
+    external_id: str
+    chunk_index: int = 0 
 
     embedding: list[float] | None = None
     embedding_model: str | None = None
@@ -27,9 +27,5 @@ class ConfluenceChunk(PermissionScope):
     @property
     def chunk_type(self) -> str:
         """What `chunks.chunk_type` gets. Constant while one page makes one chunk.
-
-        The day a chunker splits a long page this stops being constant - a
-        heading-level section is not a PAGE - which is why it is a method here
-        rather than a defaulted field somewhere.
         """
         return "PAGE"

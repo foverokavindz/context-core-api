@@ -11,8 +11,8 @@ class SlackChunk(PermissionScope):
 
     content: str
 
-    external_id: str # = "channel_id:message_ts", the same value the message carries
-    chunk_index: int = 0 # one message makes one chunk, so this is always the first
+    external_id: str 
+    chunk_index: int = 0 
 
     embedding: list[float] | None = None
     embedding_model: str | None = None

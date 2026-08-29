@@ -10,8 +10,6 @@ from app.models.retrieval.ontology.query_intent import QueryIntent
 
 QUERY_ANSWERED = "ANSWERED"
 
-# How much of a cited chunk the response carries. Enough for the frontend to
-# show why a source was cited, not so much that one answer ships the corpus.
 SNIPPET_CHARACTERS = 400
 
 
@@ -86,11 +84,6 @@ class RetrievalStepTrace(BaseModel):
 
 class RetrievalTrace(BaseModel):
     """How the answer was arrived at.
-
-    Here to make the pipeline visible while it is being tested by hand: it is
-    the only way to see, from the frontend, that a weak answer came from a bad
-    plan rather than a bad model. Expected to go behind a flag, or away, once
-    the pipeline is trusted.
     """
 
     resolved_query: str
