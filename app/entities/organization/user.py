@@ -63,13 +63,13 @@ class User(UUIDMixin, TimestampMixin, Base):
         server_default=true(),
     )
 
-    department: Mapped["Department | None"] = relationship(back_populates="users") # populate the department relationship with the User model
-    job_title: Mapped["JobTitle | None"] = relationship(back_populates="users") # populate the job_title relationship with the User model
+    department: Mapped["Department | None"] = relationship(back_populates="users") 
+    job_title: Mapped["JobTitle | None"] = relationship(back_populates="users") 
 
-    created_teams: Mapped[list["Team"]] = relationship(back_populates="creator") # teams this user created, which is not the same as the team they are in
-    team_membership: Mapped["TeamMember | None"] = relationship(back_populates="user") # the one team this user belongs to, if any - team_members.user_id is unique
+    created_teams: Mapped[list["Team"]] = relationship(back_populates="creator") 
+    team_membership: Mapped["TeamMember | None"] = relationship(back_populates="user") 
 
-    created_external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="creator") # sources this user connected, which says nothing about who may read them
+    created_external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="creator") 
 
-    documents: Mapped[list["Document"]] = relationship(back_populates="uploader") # files this user uploaded, normally HR. Uploading one does not decide who may read it - the resource it produces carries the scope
-    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user") # this person's conversations, which are theirs alone - a session has one user and is never shared
+    documents: Mapped[list["Document"]] = relationship(back_populates="uploader") 
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user") 

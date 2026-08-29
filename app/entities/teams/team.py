@@ -37,14 +37,13 @@ class Team(UUIDMixin, TimestampMixin, Base):
         index=True,
     )
 
-    __table_args__ = (UniqueConstraint("department_id", "name"),) # Ensure unique team names within the same department
-
+    __table_args__ = (UniqueConstraint("department_id", "name"),) 
     department: Mapped["Department"] = relationship(back_populates="teams")
-    creator: Mapped["User | None"] = relationship(back_populates="created_teams") # who created the team, not who belongs to it
+    creator: Mapped["User | None"] = relationship(back_populates="created_teams") 
     team_members: Mapped[list["TeamMember"]] = relationship(back_populates="team")
 
-    source_credentials: Mapped[list["SourceCredentials"]] = relationship(back_populates="team") # credentials are owned by the team, not held on it - a team may have one per provider
+    source_credentials: Mapped[list["SourceCredentials"]] = relationship(back_populates="team") 
     external_data_sources: Mapped[list["ExternalDataSource"]] = relationship(back_populates="team")
 
-    resources: Mapped[list["Resource"]] = relationship(back_populates="team") # knowledge scoped to this team, which is not everything its sources produced - a resource may be scoped wider
-    chunks: Mapped[list["Chunk"]] = relationship(back_populates="team") # the denormalized half of the same fact, and not a collection anything should iterate - it exists so the foreign key has a name on both sides
+    resources: Mapped[list["Resource"]] = relationship(back_populates="team") 
+    chunks: Mapped[list["Chunk"]] = relationship(back_populates="team") 

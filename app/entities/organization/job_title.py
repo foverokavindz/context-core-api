@@ -25,7 +25,6 @@ class JobTitle(UUIDMixin, TimestampMixin, Base):
 
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    __table_args__ = (UniqueConstraint("department_id", "name"),) # Ensure unique job title names within the same department
-
+    __table_args__ = (UniqueConstraint("department_id", "name"),) 
     department: Mapped["Department"] = relationship(back_populates="job_titles")
     users: Mapped[list["User"]] = relationship(back_populates="job_title")

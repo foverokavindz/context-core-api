@@ -1,4 +1,3 @@
-"""Organization entities. Importing this package registers all four mappers."""
 
 from app.entities.organization.application_role import ApplicationRole
 from app.entities.organization.department import Department

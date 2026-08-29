@@ -25,5 +25,5 @@ class Department(UUIDMixin, TimestampMixin, Base):
     users: Mapped[list["User"]] = relationship(back_populates="department")
     teams: Mapped[list["Team"]] = relationship(back_populates="department")
 
-    resources: Mapped[list["Resource"]] = relationship(back_populates="department") # knowledge the whole department may read, such as an HR policy, and not the union of its teams' resources
-    chunks: Mapped[list["Chunk"]] = relationship(back_populates="department") # the denormalized half, the same as Team.chunks
+    resources: Mapped[list["Resource"]] = relationship(back_populates="department") 
+    chunks: Mapped[list["Chunk"]] = relationship(back_populates="department") 

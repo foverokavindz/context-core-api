@@ -1,13 +1,3 @@
-"""Entity Models
-
-Importing this package registers every mapper in the schema. Import it rather
-than a single group: the groups now point at each other's mappers - `organization`
-carries relationships into `teams`, `documents` and `chat`, `teams` carries
-relationships into `data_sources`, `knowledge_sources` and `chunks`, and `chat`
-points back at `chunks` and `knowledge_sources` - so importing
-`app.entities.organization` on its own leaves `Department.teams` with nothing to
-resolve to.
-"""
 
 from app.entities.chat import ChatSession, ChatSessionMessage, Citation, MessageRole
 from app.entities.chunks import Chunk

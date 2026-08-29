@@ -30,8 +30,7 @@ class TeamMember(UUIDMixin, TimestampMixin, Base):
         ForeignKey("users.id"),
         nullable=False,
         unique=True,
-    ) # unique, so a user is in at most one team - moving teams replaces the row rather than adding one
-
+    )
     member_role: Mapped[MemberRole] = mapped_column(
         SAEnum(
             MemberRole,
@@ -48,7 +47,6 @@ class TeamMember(UUIDMixin, TimestampMixin, Base):
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
-    ) # when the person joined the team, which a service may backdate - created_at is when the row was written
-
+    ) 
     team: Mapped["Team"] = relationship(back_populates="team_members")
     user: Mapped["User"] = relationship(back_populates="team_membership")
