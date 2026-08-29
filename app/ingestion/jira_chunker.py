@@ -1,21 +1,3 @@
-"""JiraIssue -> JiraChunk.
-
-    JiraIssue  ->  JiraChunker  ->  JiraChunk
-
-One issue produces exactly one chunk. No splitting by tokens, characters,
-paragraphs, headings or sentences - the simplest baseline that can work, so that
-what a chunk contains is obvious before any smarter strategy is layered on. If
-Jira descriptions turn out to be long enough to need splitting, that decision
-belongs here and nowhere else.
-
-This module is where all chunk formatting lives. The route does not build chunk
-text and neither does the connector, so the shape of what gets embedded is
-readable in one place.
-
-The one rule worth stating twice: an Epic's chunk names its children by key and
-never repeats their text. Each Story already has its own chunk, so copying its
-description into its Epic would duplicate the same prose across two embeddings.
-"""
 
 import logging
 
@@ -24,8 +6,6 @@ from app.models.jira.issue import JiraIssue
 
 logger = logging.getLogger(__name__)
 
-# Stands in for an empty description so a chunk never ends on a dangling
-# "Description:" header with nothing under it.
 NO_DESCRIPTION_TEXT = "(no description)"
 
 
@@ -34,10 +14,6 @@ class JiraChunker:
 
     def chunk(self, issue: JiraIssue) -> JiraChunk:
         """Render one issue.
-
-        The issue's own fields are carried onto the chunk as metadata as well as
-        being rendered into `content`, so a chunk is self-describing once it
-        leaves the pipeline.
         """
         return JiraChunk(
             key=issue.key,
@@ -54,10 +30,6 @@ class JiraChunker:
 
     def chunk_many(self, issues: list[JiraIssue]) -> list[JiraChunk]:
         """Render every issue, in order.
-
-        len(chunks) == len(issues), always. Nothing here can skip an issue or
-        emit two for one, which is what makes `generated_chunks` and
-        `retrieved_issues` comparable in the response.
         """
         chunks = [self.chunk(issue) for issue in issues]
         logger.info("Generated %d Jira chunks", len(chunks))
@@ -68,9 +40,6 @@ class JiraChunker:
     @staticmethod
     def _render_content(issue: JiraIssue) -> str:
         """Lay out one issue as plain readable text.
-
-        Absent values are omitted rather than rendered as "None": a Story with
-        no status should not carry the word "None" into its embedding.
         """
         lines = [
             f"Issue Key: {issue.key}",
@@ -88,8 +57,6 @@ class JiraChunker:
         lines.append("Description:")
         lines.append(issue.description or NO_DESCRIPTION_TEXT)
 
-        # Keys only. `child_issues` is a list[str], so there is no code path
-        # here that could reach a child's description even by accident.
         if issue.child_issues:
             lines.append("")
             lines.append("Child Issues:")

@@ -1,10 +1,3 @@
-"""The shape every parser follows, plus the registry that picks one.
-
-A parser takes a RepositoryFile - our own model - and returns CodeChunks. It
-never sees a PyGithub object, a URL or a token. That is what makes the parsing
-layer reusable for any future source: once something has been normalised into a
-RepositoryFile, the parser does not care where it came from.
-"""
 
 from abc import ABC, abstractmethod
 
@@ -26,21 +19,11 @@ class BaseParser(ABC):
         warnings: list[str] | None = None,
     ) -> list[CodeChunk]:
         """Extract chunks from `file`.
-
-        Implementations should degrade rather than raise: a file whose syntax
-        cannot be understood should still yield something useful (at minimum a
-        whole-file chunk) so no source is silently lost. Anything noteworthy
-        that did not justify failing - a syntax error the parser recovered
-        from, say - is appended to `warnings` when one is supplied.
         """
 
 
 class ParserRegistry:
     """Routes a file to the parser that handles its extension.
-
-    Deliberately trivial - a list and a loop. It exists so adding a Python or
-    Java parser later is a registration call rather than an `if` in the
-    ingestion service.
     """
 
     def __init__(self, parsers: list[BaseParser] | None = None) -> None:

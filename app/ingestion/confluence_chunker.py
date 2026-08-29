@@ -1,26 +1,3 @@
-"""ConfluencePage -> ConfluenceChunk.
-
-    ConfluencePage  ->  ConfluenceChunker  ->  ConfluenceChunk
-
-One page produces exactly one chunk. No splitting by headings, tokens,
-characters, paragraphs or sections - the simplest baseline that can work, so that
-what a chunk contains is obvious before any smarter strategy is layered on. Wiki
-pages are longer than Jira descriptions and this is the pipeline most likely to
-outgrow the rule, but a baseline is what a heading-based strategy would have to
-be measured against, and measuring it is not part of this version. When that
-changes, the decision belongs here and nowhere else.
-
-This module is where all chunk formatting lives. The route does not build chunk
-text and neither does the connector, so the shape of what gets embedded is
-readable in one place.
-
-The one rule worth stating twice: ids stay out of the text. `page_id`,
-`parent_id` and `version_number` all ride on the chunk as metadata, because they
-are what a retrieval layer filters and deduplicates on - but a version number is
-not something a reader asks a question about, and putting it in the prose would
-only dilute what the page actually says.
-"""
-
 import logging
 
 from app.models.confluence.chunk import ConfluenceChunk
@@ -40,10 +17,6 @@ class ConfluenceChunker:
 
     def chunk(self, page: ConfluencePage) -> ConfluenceChunk:
         """Render one page.
-
-        The page's own fields are carried onto the chunk as metadata as well as
-        being rendered into `content`, so a chunk is self-describing once it
-        leaves the pipeline.
         """
         return ConfluenceChunk(
             page_id=page.page_id,
@@ -60,10 +33,6 @@ class ConfluenceChunker:
 
     def chunk_many(self, pages: list[ConfluencePage]) -> list[ConfluenceChunk]:
         """Render every page, in order.
-
-        len(chunks) == len(pages), always. Nothing here can skip a page or emit
-        two for one, which is what makes `generated_chunks` and `parsed_pages`
-        comparable in the response.
         """
         chunks = [self.chunk(page) for page in pages]
         logger.info("Generated %d Confluence chunks", len(chunks))
@@ -74,14 +43,6 @@ class ConfluenceChunker:
     @staticmethod
     def _render_content(page: ConfluencePage) -> str:
         """Lay out one page as plain readable text.
-
-        Three things, in the order a reader would want them: which space this
-        came from, what the page is called, and what it says. The space and the
-        title are the context an embedding cannot recover from the body - a
-        paragraph about "the token endpoint" means something different in
-        TrackIt than in PayFlow.
-
-        Absent values are omitted rather than rendered as "None".
         """
         lines = [
             f"Space: {_space_label(page)}",
@@ -96,10 +57,6 @@ class ConfluenceChunker:
 
 def _space_label(page: ConfluencePage) -> str:
     """Name the space the way a person would.
-
-    "TrackIt (TR)" reads better than either half alone, and the key is worth
-    keeping alongside the name because it is what a caller typed to get here.
-    Falls back to the key when no name was resolved.
     """
     if page.space_name:
         return f"{page.space_name} ({page.space_key})"

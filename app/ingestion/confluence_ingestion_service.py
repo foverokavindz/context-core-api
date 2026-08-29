@@ -1,19 +1,3 @@
-"""Orchestration for Confluence ingestion: fetch, parse, chunk.
-
-    ConfluenceConnector -> raw JSON -> ConfluenceParser -> ConfluencePage[] ->
-    ConfluenceChunk[]
-
-This module owns the order of the pipeline and nothing else. It contains no HTTP
-calls, no knowledge of Confluence's field names, and no chunk formatting - those
-belong to the connector, the parser and the chunker respectively.
-
-There is no linking pass, which is the one place this differs from the Jira
-service. Jira needs one because it tells you a Story's parent but never an
-Epic's children, and asking for them would cost a request per Epic. Confluence
-reports parentId the same way, but nothing downstream wants the reverse
-direction, so a page keeps its pointer upward and no children are reconstructed.
-That is a smaller pipeline, not an unfinished one.
-"""
 
 import logging
 import time
@@ -40,10 +24,6 @@ ConfluenceConnectorFactory = Callable[[str, str, SecretStr], ConfluenceConnector
 @dataclass
 class ConfluenceIngestionResult:
     """The complete outcome of one run.
-
-    Holds *every* page and *every* chunk. The HTTP layer serialises only a
-    sample of this, but the full set is what a later phase would hand to an
-    embedding step - which is the whole point of keeping it intact here.
     """
 
     site_url: str
@@ -52,23 +32,15 @@ class ConfluenceIngestionResult:
     space_key: str
     space_name: str | None = None
 
-    # What the connector actually retrieved, which is not the same as
-    # len(pages): an unparseable payload is dropped but was still retrieved.
     retrieved_pages: int = 0
 
-    # True when the run saw only part of the space. Independent of how much of
-    # the result the response later serialises.
     truncated: bool = False
 
     pages: list[ConfluencePage] = field(default_factory=list)
     chunks: list[ConfluenceChunk] = field(default_factory=list)
 
-    # (page id or space key, reason) for anything skipped or noted. Never fatal.
     errors: list[tuple[str, str]] = field(default_factory=list)
 
-    # What the embedding step did, or zeroes when it was skipped. The vectors
-    # themselves live on the chunks above - there is one list of chunks in a run
-    # and it is the one the chunker produced.
     embedded_chunks: int = 0
     embedding_batches: int = 0
     embedding_model: str | None = None
@@ -100,10 +72,6 @@ class ConfluenceIngestionService:
         self.chunker = chunker or ConfluenceChunker()
         self.connector_factory = connector_factory
         self.max_pages = max_pages
-        # No default embedder on purpose. A service built without one parses and
-        # chunks and stops there, which is what a test wants; the API wires a
-        # real one in. An embedder constructed by mistake would be the kind of
-        # default that quietly bills somebody.
         self.embedder = embedder
 
     def ingest(
@@ -116,24 +84,12 @@ class ConfluenceIngestionService:
         embed: bool = True,
     ) -> ConfluenceIngestionResult:
         """Ingest one Confluence space and return everything that was produced.
-
-        `max_pages` overrides the service default for this run only. `embed`
-        turns the embedding step off for a run that only wants chunks; it does
-        nothing when the service was built without an embedder.
-
-        Raises IngestionError subclasses for whole-run failures - bad
-        credentials, an invisible space, a rate limit, and a failed embedding
-        pass. Problems with individual pages are collected into `errors` and do
-        not stop the run: one unparseable page is not worth losing 200 good ones
-        over, while half a set of vectors is worth nothing at all.
         """
         logger.info(
             "Ingesting Confluence space %s from %s", space_key, site_url
         )
         started = time.monotonic()
 
-        # The connector holds the caller's token, so it is closed as soon as the
-        # fetching is done - parsing and chunking happen afterwards, without it.
         with self.connector_factory(site_url, email, api_token) as connector:
             snapshot = connector.get_pages(
                 space_key,
@@ -150,9 +106,6 @@ class ConfluenceIngestionService:
             errors=list(snapshot.errors),
         )
 
-        # The space comes from the snapshot, not from what the caller typed:
-        # every page in the result is stamped with the space that was actually
-        # resolved, so the response cannot claim a space the run did not read.
         result.pages = self.parser.parse_many(
             snapshot.pages,
             result.errors,
@@ -172,8 +125,6 @@ class ConfluenceIngestionService:
             time.monotonic() - started,
         )
 
-        # The shared stage: identical for all four sources, so it lives beside
-        # the embedder rather than being written out four times.
         embed_into(result, self.embedder, embed=embed)
 
         return result
