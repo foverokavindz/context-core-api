@@ -93,13 +93,6 @@ class ChunkRepository:
         self, source_id: UUID, external_ids: Sequence[str]
     ) -> dict[str, int]:
         """How many chunks each of these resources was split into.
-
-        A chunk carries no `resource_id`: it belongs to the resource sharing its
-        `(external_data_source_id, external_id)` pair, which is the same join
-        `_search_statement` below makes. Counting groups on that second column,
-        with the source fixed - `external_id` only means something inside its
-        source, so two repositories each holding a README.md would otherwise be
-        counted as one.
         """
         if not external_ids:
             return {}

@@ -1,4 +1,3 @@
-"""Turns a question into a PromptAnalysis"""
 
 import logging
 

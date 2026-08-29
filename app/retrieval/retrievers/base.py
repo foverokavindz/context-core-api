@@ -1,4 +1,3 @@
-"""The one shape every source retriever has."""
 
 from typing import Protocol
 

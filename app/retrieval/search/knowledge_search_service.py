@@ -1,4 +1,3 @@
-"""The one search behind all four retrievers."""
 
 import logging
 from collections.abc import Callable

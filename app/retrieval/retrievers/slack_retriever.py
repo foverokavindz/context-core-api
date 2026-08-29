@@ -1,4 +1,3 @@
-"""Searches Slack channel history."""
 
 from app.entities.data_sources.source_type import SourceType
 from app.models.retrieval.access_context import AccessContext
