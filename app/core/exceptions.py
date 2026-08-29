@@ -73,10 +73,6 @@ class JWTConfigurationError(ApplicationAuthError):
 
 class IngestionError(Exception):
     """Base class for every failure the ingestion pipeline reports to a client.
-
-    `status_code` is the HTTP status the API returns. `message` is the entire
-    body the client sees, so it must never contain a token, a header, or an
-    internal stack detail.
     """
 
     status_code: int = 500
@@ -99,9 +95,6 @@ class AuthenticationError(IngestionError):
 
 class RepositoryNotFoundError(IngestionError):
     """No such repository, or the token cannot see it.
-
-    GitHub deliberately returns 404 rather than 403 for private repositories a
-    token may not read, so these two cases are genuinely indistinguishable here.
     """
 
     status_code = 404
@@ -146,10 +139,6 @@ class UnsupportedFileError(IngestionError):
 
 class JiraAuthenticationError(IngestionError):
     """Jira rejected the email/API-token pair itself.
-
-    Jira Cloud answers 401 when the credentials are wrong, expired or revoked,
-    and 403 when they are valid but insufficient - so unlike GitHub there is no
-    need to inspect a response body to tell the two apart.
     """
 
     status_code = 401
@@ -161,10 +150,6 @@ class JiraAuthenticationError(IngestionError):
 
 class JiraPermissionError(IngestionError):
     """The account authenticated, but is not allowed to do this.
-
-    The only 403 in this codebase. GitHub's 403 deliberately becomes an
-    AuthenticationError because it also means "rate limited"; Jira's does not,
-    so it keeps its own status.
     """
 
     status_code = 403
@@ -175,10 +160,6 @@ class JiraPermissionError(IngestionError):
 
 class JiraNotFoundError(IngestionError):
     """No such Jira site or project, or the account cannot see it.
-
-    Jira hides projects an account may not read rather than returning 403, so
-    those two cases are genuinely indistinguishable here - the same situation
-    RepositoryNotFoundError describes for private GitHub repositories.
     """
 
     status_code = 404
@@ -189,9 +170,6 @@ class JiraNotFoundError(IngestionError):
 
 class JiraRateLimitError(IngestionError):
     """Jira is throttling this account.
-
-    Returned to the caller immediately. Nothing in the connector sleeps waiting
-    for a limit to reset - that would stall a request for minutes.
     """
 
     status_code = 429
@@ -200,9 +178,6 @@ class JiraRateLimitError(IngestionError):
 
 class JiraApiError(IngestionError):
     """Jira could not be reached, or returned something we cannot act on.
-
-    Covers network failures, timeouts, unreadable bodies, and any status the
-    other Jira errors do not claim.
     """
 
     status_code = 502
@@ -211,10 +186,6 @@ class JiraApiError(IngestionError):
 
 class ConfluenceAuthenticationError(IngestionError):
     """Confluence rejected the email/API-token pair itself.
-
-    Confluence Cloud answers 401 for wrong, expired or revoked credentials and
-    403 for valid-but-insufficient ones, the same split Jira makes - so the
-    status alone is enough to tell them apart.
     """
 
     status_code = 401
@@ -226,10 +197,6 @@ class ConfluenceAuthenticationError(IngestionError):
 
 class ConfluencePermissionError(IngestionError):
     """The account authenticated, but is not allowed to do this.
-
-    A scoped token missing `read:space:confluence` or `read:page:confluence`
-    lands here rather than on the 401 above: the credential is real, it simply
-    does not carry the scope this ingestion needs.
     """
 
     status_code = 403
@@ -241,11 +208,6 @@ class ConfluencePermissionError(IngestionError):
 
 class ConfluenceNotFoundError(IngestionError):
     """No such Confluence site or space, or the account cannot see it.
-
-    Confluence omits spaces an account may not read from a keyed lookup rather
-    than returning 403, so an invisible space and a nonexistent one are
-    genuinely indistinguishable here - the same situation JiraNotFoundError and
-    RepositoryNotFoundError describe.
     """
 
     status_code = 404
@@ -257,9 +219,6 @@ class ConfluenceNotFoundError(IngestionError):
 
 class ConfluenceRateLimitError(IngestionError):
     """Confluence is throttling this account.
-
-    Returned to the caller immediately. Nothing in the connector sleeps waiting
-    for a limit to reset - that would stall a request for minutes.
     """
 
     status_code = 429
@@ -270,9 +229,6 @@ class ConfluenceRateLimitError(IngestionError):
 
 class ConfluenceApiError(IngestionError):
     """Confluence could not be reached, or returned something we cannot act on.
-
-    Covers network failures, timeouts, unreadable bodies, and any status the
-    other Confluence errors do not claim.
     """
 
     status_code = 502
@@ -283,11 +239,6 @@ class ConfluenceApiError(IngestionError):
 
 class SlackAuthenticationError(IngestionError):
     """Slack rejected the bot token itself.
-
-    Reached through `invalid_auth`, `not_authed`, `token_revoked`,
-    `token_expired` and `account_inactive` - all of which Slack reports in the
-    body of a 200 response rather than as a 401. The connector is what turns
-    them into this; nothing downstream sees the string.
     """
 
     status_code = 401
@@ -299,12 +250,6 @@ class SlackAuthenticationError(IngestionError):
 
 class SlackPermissionError(IngestionError):
     """The token is real, but this workspace will not let it read this channel.
-
-    Two quite different causes land here, and Slack names them separately:
-    `missing_scope` means the token was created without `channels:history` or
-    `groups:history`, and `not_in_channel` means the scope is present but the
-    bot was never invited to the conversation. Both are fixed by an
-    administrator rather than by a new token, which is why they share a status.
     """
 
     status_code = 403
@@ -317,12 +262,6 @@ class SlackPermissionError(IngestionError):
 
 class SlackNotFoundError(IngestionError):
     """No such channel, or this token cannot see it.
-
-    Slack answers `channel_not_found` both for a conversation that does not
-    exist and for one the token has no visibility of, so the two are genuinely
-    indistinguishable here - the same situation ConfluenceNotFoundError,
-    JiraNotFoundError and RepositoryNotFoundError describe for their own
-    vendors.
     """
 
     status_code = 404
@@ -334,10 +273,6 @@ class SlackNotFoundError(IngestionError):
 
 class SlackRateLimitError(IngestionError):
     """Slack is throttling this token.
-
-    Returned to the caller immediately. Slack sends a `Retry-After` header with
-    its 429 and the connector logs that value, but nothing sleeps on it - that
-    would stall a synchronous request for the length of a Slack cooldown.
     """
 
     status_code = 429
@@ -346,12 +281,6 @@ class SlackRateLimitError(IngestionError):
 
 class SlackApiError(IngestionError):
     """Slack could not be reached, or returned something we cannot act on.
-
-    Covers network failures, timeouts, unreadable bodies, a response with no
-    usable `ok` field, and every Slack error string the classes above do not
-    claim - including ones Slack has not invented yet. An unrecognised error
-    becomes this rather than an authentication failure, because guessing wrong
-    about a credential sends an operator to check the wrong thing.
     """
 
     status_code = 502
@@ -360,10 +289,6 @@ class SlackApiError(IngestionError):
 
 class EmbeddingConfigurationError(IngestionError):
     """The embedding endpoint is not configured on this deployment.
-
-    A 500 rather than a 4xx: the caller asked for something reasonable and the
-    server cannot honour it. The message names the missing variable but never
-    its value - an API key must not reach a response, a log line or a traceback.
     """
 
     status_code = 500
@@ -375,15 +300,6 @@ class EmbeddingConfigurationError(IngestionError):
 
 class EmbeddingError(IngestionError):
     """The embedding API failed, or answered with something we cannot trust.
-
-    Two quite different causes share this class, and both are fatal to a run.
-    The first is an ordinary API failure - unreachable, throttled past the
-    retries, or a rejected request. The second is a *mismatch*: a batch of 30
-    inputs coming back with 29 vectors, or a vector of the wrong width. That
-    second case is the important one. Nothing downstream can tell which chunk
-    lost its vector, so guessing an alignment would silently attach the wrong
-    embedding to the wrong code - which is worse than failing the run, because
-    it fails at retrieval time instead, months later and invisibly.
     """
 
     status_code = 502
@@ -395,11 +311,6 @@ class EmbeddingError(IngestionError):
 
 class LLMConfigurationError(IngestionError):
     """The chat model is not configured on this deployment.
-
-    A 500 for the same reason EmbeddingConfigurationError is one, and it names
-    its own deployment variable rather than the embedding one: the two point at
-    different models on the same resource, and an operator told to check the
-    wrong variable finds it perfectly well set.
     """
 
     status_code = 500
@@ -412,16 +323,6 @@ class LLMConfigurationError(IngestionError):
 
 class LLMError(IngestionError):
     """The chat model failed, or answered with something we cannot use.
-
-    Both halves matter. The first is an ordinary API failure - unreachable,
-    throttled, or a rejected request. The second is a model that answered but
-    not in the shape that was asked for, which is a real possibility whenever
-    output is structured and is not something to paper over: a half-understood
-    question sends the whole pipeline after the wrong thing.
-
-    The provider's own words never reach this message. Only the exception's type
-    name is logged, which is enough to tell a timeout from a rejection without
-    putting a key, a prompt or a traceback into a response.
     """
 
     status_code = 502
@@ -433,18 +334,6 @@ class LLMError(IngestionError):
 
 class RetrievalExecutionError(IngestionError):
     """A retrieval plan could not be run.
-
-    A 500 rather than a 502, because every way of reaching it is this server's
-    own fault rather than a vendor's: a step depending on one that can never
-    complete, a source with no retriever registered for it, or a retriever that
-    raised. The planner and `repair_plan` between them are supposed to make the
-    first two impossible, so reaching this means an assumption downstream of
-    them was wrong - which is worth failing loudly for rather than answering
-    from half a plan.
-
-    A model that fails while enriching a query is deliberately NOT this. That is
-    an `LLMError`, and saying "the executor broke" about a chat-model timeout
-    sends an operator to look in the wrong place.
     """
 
     status_code = 500
@@ -453,10 +342,6 @@ class RetrievalExecutionError(IngestionError):
 
 class EmptyQueryError(IngestionError):
     """There was no question to understand.
-
-    The chat request models already reject a blank query, so this is the guard
-    for every other caller. It is raised before the model is called rather than
-    after, because an empty prompt costs a round trip to learn nothing.
     """
 
     status_code = 400
@@ -465,11 +350,6 @@ class EmptyQueryError(IngestionError):
 
 class DatabaseConfigurationError(IngestionError):
     """`DATABASE_URL` is not set on this deployment.
-
-    A 500 for the same reason EmbeddingConfigurationError is one: the caller
-    asked for something reasonable and the server cannot honour it. The message
-    names the variable and never its value - a connection URL carries a
-    password, so it must not reach a response, a log line or a traceback.
     """
 
     status_code = 500

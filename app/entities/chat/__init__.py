@@ -1,5 +1,3 @@
-"""Chat entities. Importing this package registers all three mappers."""
-
 from app.entities.chat.chat_session import ChatSession
 from app.entities.chat.chat_session_message import ChatSessionMessage
 from app.entities.chat.citation import Citation

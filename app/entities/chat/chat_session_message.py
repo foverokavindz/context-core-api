@@ -22,7 +22,7 @@ class ChatSessionMessage(UUIDMixin, TimestampMixin, Base):
         ForeignKey("chat_sessions.id"),
         nullable=False,
         index=True,
-    ) # indexed rather than covered by a constraint: nothing about a message is unique within its session, and "replay this conversation" is the query
+    ) 
 
     role: Mapped[MessageRole] = mapped_column(
         SAEnum(
@@ -32,9 +32,8 @@ class ChatSessionMessage(UUIDMixin, TimestampMixin, Base):
             values_callable=lambda enum_cls: [member.value for member in enum_cls],
         ),
         nullable=False,
-    ) # not indexed - a session holds a handful of rows and filtering them by role is not a query worth an index on the whole table
+    ) 
 
-    content: Mapped[str] = mapped_column(Text, nullable=False) # one turn, and one turn only. A question and its answer are two rows, which is what lets citations point at the answer and not at the pair
-
+    content: Mapped[str] = mapped_column(Text, nullable=False) 
     chat_session: Mapped["ChatSession"] = relationship(back_populates="messages")
-    citations: Mapped[list["Citation"]] = relationship(back_populates="message") # empty on a USER row and on any ASSISTANT row that answered without retrieving anything, which is a real case rather than a missing one
+    citations: Mapped[list["Citation"]] = relationship(back_populates="message") 
