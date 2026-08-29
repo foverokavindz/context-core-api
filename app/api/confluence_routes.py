@@ -1,11 +1,3 @@
-"""HTTP routes for Confluence ingestion.
-
-Contains: the route, and the projection from a ConfluenceIngestionResult onto
-the JSON response. Never contains: Confluence calls, space resolution,
-storage-format parsing, pagination or chunk formatting - those belong to the
-connector, the service and the chunker respectively.
-"""
-
 import logging
 
 from fastapi import APIRouter, Depends
@@ -33,11 +25,7 @@ _service = ConfluenceIngestionService(embedder=ChunkEmbedder())
 
 
 def get_confluence_ingestion_service() -> ConfluenceIngestionService:
-    """Supply the service to the route.
 
-    A FastAPI dependency rather than a direct import so tests can override it
-    with `app.dependency_overrides` instead of reaching into module globals.
-    """
     return _service
 
 
@@ -54,12 +42,7 @@ def ingest_space(
     request: ConfluenceIngestRequest,
     service: ConfluenceIngestionService = Depends(get_confluence_ingestion_service),
 ) -> ApiResponse[ConfluenceIngestResponse]:
-    """Fetch, normalise and chunk one Confluence space.
 
-    The response is a verification aid: it reports the full counts but only a
-    sample of the pages and chunks, because a large space would otherwise return
-    megabytes of text.
-    """
     result = service.ingest(
         site_url=request.site_url,
         email=request.email,
@@ -76,15 +59,7 @@ def ingest_space(
 def to_response(
     result: ConfluenceIngestionResult, *, full: bool = False
 ) -> ConfluenceIngestResponse:
-    """Project the internal result onto the HTTP response.
 
-    The pipeline always processes the whole space; `full` only decides how many
-    of the pages and chunks are serialised, and does not affect `truncated`,
-    which reports whether the *ingestion* saw everything.
-
-    Public rather than private because the background pipeline serialises its
-    run through this same projection.
-    """
     page_limit = None if full else SAMPLE_PAGES_LIMIT
     chunk_limit = None if full else SAMPLE_CHUNKS_LIMIT
 

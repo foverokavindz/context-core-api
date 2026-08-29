@@ -41,8 +41,6 @@ def run_ingestion_pipeline(
     source: ExternalDataSource,
     sync_run_id: UUID,
     request: IngestDataRequest,
-    # this runs as a BackgroundTask, and it owns its
-    # session end to end rather than borrowing the request's. 
     db_session: Callable[[], Session] = SessionLocal,
 ) -> None:
     """Ingest from one connected source, persist the result, and write the run file."""
@@ -110,9 +108,7 @@ def run_ingestion_pipeline(
         return
 
     except SQLAlchemyError:
-        # Nothing reached the database, and there is no client left to answer -
-        # a failure that vanished here would be invisible, so it is logged in
-        # full and recorded on the run row in the safe form.
+
         logger.exception(
             "Ingestion run %s could not be persisted for source %s",
             sync_run_id,
@@ -133,9 +129,7 @@ def run_ingestion_pipeline(
         return
 
     except Exception:
-        # The catch-all exists for one reason: the run row is already RUNNING,
-        # and an exception past this point would leave it that way for ever.
-        # A run that ended has to say so, whatever ended it.
+
         logger.exception(
             "Ingestion run %s failed unexpectedly for source %s",
             sync_run_id,
@@ -245,11 +239,7 @@ def _record_failure(
     sync_run_id: UUID,
     message: str,
 ) -> None:
-    """Mark the run FAILED on a session that may be holding a half-written run.
 
-    The rollback comes first: resources may already have been flushed when the
-    chunk insert failed, and none of them should survive a failed run.
-    """
     try:
         session.rollback()
         sync_runs.update_status(
@@ -267,12 +257,7 @@ def _record_failure(
 def _source_record(
     source: ExternalDataSource, request: IngestDataRequest
 ) -> dict[str, Any]:
-    """The connection this run was made against, as JSON.
 
-    Built field by field rather than dumped, for one reason: `source.token` must
-    not be in it. A secret does not reach a log, a response or a file, and a
-    dump-everything helper is exactly how that rule gets broken later.
-    """
     return {
         "external_data_source_id": str(source.id),
         "team_id": str(source.team_id),
@@ -301,8 +286,6 @@ def _failed(
         "status": "FAILED",
         "started_at": started_at,
         "completed_at": _now(),
-        # The client-safe message, the same text the synchronous endpoints
-        # return. The upstream API's own error body stays in the server log.
         "error": {"type": error_type, "message": message},
         "result": None,
     }

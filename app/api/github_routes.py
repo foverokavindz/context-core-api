@@ -1,10 +1,3 @@
-"""HTTP routes for GitHub ingestion.
-
-Contains: the route, and the projection from an IngestionResult onto the JSON
-response. Never contains: GitHub calls, filtering rules, or parsing - those
-belong to the connector, the filter and the parsers respectively.
-"""
-
 import logging
 
 from fastapi import APIRouter, Depends
@@ -25,9 +18,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/github", tags=["github"])
 
-# The embedder reads no environment variable and opens no connection until the
-# first batch is sent, so building one here costs nothing and importing this
-# module on a machine with no credentials still works.
 _service = GitHubIngestionService(embedder=ChunkEmbedder())
 
 def get_ingestion_service() -> GitHubIngestionService:
